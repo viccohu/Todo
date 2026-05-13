@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using System.Collections.ObjectModel;
 using System;
 using Microsoft.UI.Windowing;
@@ -16,7 +17,9 @@ namespace Todo
         private bool _isDesktopMode = false;
         private AppWindow? _appWindow;
         private bool _showCompleted = false;
+        private bool _isDrawerOpen = false;
         private DatabaseService _dbService = new DatabaseService();
+        private TaskItem? _selectedTask;
 
         public ObservableCollection<TaskItem> Tasks { get; } = new ObservableCollection<TaskItem>();
         public ObservableCollection<TaskItem> CompletedTasks { get; } = new ObservableCollection<TaskItem>();
@@ -29,14 +32,14 @@ namespace Todo
             InitializeData();
             LoadCustomGroups();
             
-            NavView.SelectedItem = NavView.MenuItems[1]; // 默认选中重要任务
+            NavView.SelectedItem = NavView.MenuItems[1];
         }
 
         private void InitializeData()
         {
-            Tasks.Add(new TaskItem { Title = "制定计划书1", DueDate = "下周三", IsChecked = false });
-            Tasks.Add(new TaskItem { Title = "制定计划书2", DueDate = "2026年3月1日 周三", IsChecked = false });
-            CompletedTasks.Add(new TaskItem { Title = "制定计划书", DueDate = "2026年2月1日 周三", IsChecked = true });
+            Tasks.Add(new TaskItem { Id = 1, Title = "制定计划书1", DueDate = "下周三", IsChecked = false });
+            Tasks.Add(new TaskItem { Id = 2, Title = "制定计划书2", DueDate = "2026年3月1日 周三", IsChecked = false });
+            CompletedTasks.Add(new TaskItem { Id = 3, Title = "制定计划书", DueDate = "2026年2月1日 周三", IsChecked = true });
             
             TasksList.ItemsSource = Tasks;
             CompletedTasksList.ItemsSource = CompletedTasks;
@@ -55,7 +58,6 @@ namespace Todo
 
         private void RefreshCustomNavigation()
         {
-            // 清除旧的动态导航项
             var itemsToRemove = new List<object>();
             foreach (var item in NavView.MenuItems)
             {
@@ -69,7 +71,6 @@ namespace Todo
                 NavView.MenuItems.Remove(item);
             }
 
-            // 添加新的分组
             foreach (var group in CustomGroups)
             {
                 var groupItem = new NavigationViewItem
@@ -185,6 +186,136 @@ namespace Todo
             }
         }
 
+        private void TaskItem_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            var pointerPoint = e.GetCurrentPoint(sender as UIElement);
+            if (!pointerPoint.Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+            
+            if (sender is Border border && border.DataContext is TaskItem task)
+            {
+                if (_selectedTask == task)
+                {
+                    CloseDrawer();
+                }
+                else
+                {
+                    _selectedTask = task;
+                    ShowDrawer(task);
+                    UpdateTaskItemSelection(task, border);
+                }
+            }
+        }
+
+        private void TaskItem_PointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is Border border)
+            {
+                border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                    Microsoft.UI.ColorHelper.FromArgb(255, 0x25, 0x25, 0x25));
+            }
+        }
+
+        private void TaskItem_PointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is Border border && border.DataContext is TaskItem task)
+            {
+                if (_selectedTask == task)
+                {
+                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                        Microsoft.UI.ColorHelper.FromArgb(255, 0x2a, 0x2a, 0x2a));
+                }
+                else
+                {
+                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                        Microsoft.UI.ColorHelper.FromArgb(255, 0x1e, 0x1e, 0x1e));
+                }
+            }
+        }
+
+        private void UpdateTaskItemSelection(TaskItem? selectedTask, Border? selectedBorder)
+        {
+            foreach (var item in Tasks)
+            {
+                item.IsSelected = (item == selectedTask);
+            }
+            foreach (var item in CompletedTasks)
+            {
+                item.IsSelected = (item == selectedTask);
+            }
+        }
+
+        private void TaskItem_RightTapped(object sender, RightTappedRoutedEventArgs e)
+        {
+            // 右键菜单由 ContextFlyout 自动处理，不切换抽屉
+        }
+
+        private void DeleteTask_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuFlyoutItem item && item.DataContext is TaskItem task)
+            {
+                if (Tasks.Contains(task))
+                {
+                    Tasks.Remove(task);
+                }
+                else if (CompletedTasks.Contains(task))
+                {
+                    CompletedTasks.Remove(task);
+                }
+                
+                if (_selectedTask == task)
+                {
+                    CloseDrawer();
+                }
+            }
+        }
+
+        private void ShowDrawer(TaskItem task)
+        {
+            DetailTitle.Text = task.Title;
+            DetailDescription.Text = task.Description;
+            DetailDrawer.Visibility = Visibility.Visible;
+            _isDrawerOpen = true;
+        }
+
+        private void CloseDrawer()
+        {
+            DetailDrawer.Visibility = Visibility.Collapsed;
+            _isDrawerOpen = false;
+            _selectedTask = null;
+        }
+
+        private void CloseDrawer_Click(object sender, RoutedEventArgs e)
+        {
+            CloseDrawer();
+        }
+
+        private void DetailTitle_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_selectedTask != null)
+            {
+                _selectedTask.Title = DetailTitle.Text;
+            }
+        }
+
+        private void DetailDescription_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_selectedTask != null)
+            {
+                _selectedTask.Description = DetailDescription.Text;
+            }
+        }
+
+        private void DetailDatePicker_DateChanged(object sender, CalendarDatePickerDateChangedEventArgs args)
+        {
+            if (_selectedTask != null && args.NewDate != null)
+            {
+                _selectedTask.DueDate = args.NewDate.Value.DateTime.ToString("yyyy年M月d日");
+            }
+        }
+
         private void TaskCheckBox_Click(object sender, RoutedEventArgs e)
         {
             if (sender is CheckBox cb && cb.DataContext is TaskItem task)
@@ -208,9 +339,61 @@ namespace Todo
             }
         }
 
-        private void AddTask_Click(object sender, RoutedEventArgs e)
+        private void ShowAddTaskInput_Click(object sender, RoutedEventArgs e)
         {
-            Tasks.Add(new TaskItem { Title = "新任务", DueDate = "今天", IsChecked = false });
+            AddTaskButton.Visibility = Visibility.Collapsed;
+            AddTaskInputArea.Visibility = Visibility.Visible;
+            AddTaskTextBox.Text = "";
+            AddTaskTextBox.Focus(FocusState.Programmatic);
+        }
+
+        private void AddTaskInput_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key == Windows.System.VirtualKey.Enter)
+            {
+                AddTaskFromInput();
+                e.Handled = true;
+            }
+            else if (e.Key == Windows.System.VirtualKey.Escape)
+            {
+                HideAddTaskInput();
+                e.Handled = true;
+            }
+        }
+
+        private void AddTaskInput_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (!string.IsNullOrWhiteSpace(AddTaskTextBox.Text))
+            {
+                AddTaskFromInput();
+            }
+            else
+            {
+                HideAddTaskInput();
+            }
+        }
+
+        private void AddTaskFromInput()
+        {
+            if (!string.IsNullOrWhiteSpace(AddTaskTextBox.Text))
+            {
+                var newId = Tasks.Count + CompletedTasks.Count + 1;
+                Tasks.Add(new TaskItem 
+                { 
+                    Id = newId, 
+                    Title = AddTaskTextBox.Text.Trim(), 
+                    DueDate = "今天", 
+                    IsChecked = false 
+                });
+            }
+            HideAddTaskInput();
+        }
+
+        private void HideAddTaskInput()
+        {
+            AddTaskInputArea.Visibility = Visibility.Collapsed;
+            AddTaskButton.Visibility = Visibility.Visible;
+            AddTaskTextBox.Text = "";
         }
 
         private void ToggleCompleted_Click(object sender, RoutedEventArgs e)

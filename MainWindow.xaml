@@ -63,25 +63,20 @@
                             Background="#1c1c1c"
                             SelectionChanged="NavView_SelectionChanged">
                 
-      
-
                 <!-- 固定导航项 -->
                 <NavigationView.MenuItems>
-                    <!-- 日历视图 -->
                     <NavigationViewItem Content="日历视图" Tag="Calendar">
                         <NavigationViewItem.Icon>
                             <SymbolIcon Symbol="Calendar"/>
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
                     
-                    <!-- 重要任务 -->
                     <NavigationViewItem Content="重要任务" Tag="Important">
                         <NavigationViewItem.Icon>
                             <SymbolIcon Symbol="Favorite"/>
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
                     
-                    <!-- 常驻任务（可展开） -->
                     <NavigationViewItem Content="常驻任务" Tag="Recurring" IsExpanded="True">
                         <NavigationViewItem.Icon>
                             <SymbolIcon Symbol="Clock"/>
@@ -105,19 +100,14 @@
                         </NavigationViewItem.MenuItems>
                     </NavigationViewItem>
                     
-                    <!-- 分隔线 -->
                     <NavigationViewItemSeparator/>
-                    
-                    <!-- 自定义分组区域（动态加载） -->
                     <NavigationViewItemHeader Content="自定义"/>
                 </NavigationView.MenuItems>
 
-                <!-- 底部按钮 -->
                 <NavigationView.FooterMenuItems>
                     <NavigationViewItemSeparator/>
                 </NavigationView.FooterMenuItems>
 
-                <!-- 自定义 Footer -->
                 <NavigationView.PaneFooter>
                     <Grid Padding="8,4">
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Stretch">
@@ -151,38 +141,70 @@
                     </Grid>
                 </NavigationView.PaneFooter>
 
-                <!-- 内容区域 -->
+                <!-- 内容区域 - 使用 SplitView 实现抽屉 -->
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="340"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- 主内容区 -->
-                    <ScrollViewer Grid.Column="0" Background="#161616">
-                        <Grid x:Name="ContentArea" Padding="40,20,40,40">
-                            <StackPanel MaxWidth="640" HorizontalAlignment="Stretch">
-                                <StackPanel Orientation="Horizontal" Spacing="15" Margin="0,0,0,30">
-                                    <FontIcon x:Name="PageIcon" Glyph="&#xE8C8;" FontSize="28" Foreground="White"/>
-                                    <TextBlock x:Name="PageTitle" Text="重要任务" FontSize="28" FontWeight="SemiBold" Foreground="White"/>
-                                </StackPanel>
+                    <Grid Grid.Column="0" Background="#161616">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
 
+                        <!-- 页面标题 -->
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="15" Margin="40,20,40,20">
+                            <FontIcon x:Name="PageIcon" Glyph="&#xE8C8;" FontSize="28" Foreground="White"/>
+                            <TextBlock x:Name="PageTitle" Text="重要任务" FontSize="28" FontWeight="SemiBold" Foreground="White"/>
+                        </StackPanel>
+
+                        <!-- 任务列表 ScrollView -->
+                        <ScrollViewer Grid.Row="1" Padding="40,0,40,0">
+                            <StackPanel MinWidth="300" HorizontalAlignment="Stretch">
                                 <ItemsControl x:Name="TasksList">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border BorderBrush="#333" BorderThickness="1" CornerRadius="8" Height="60" Margin="0,0,0,10" Background="#1e1e1e">
+                                            <Border BorderBrush="#333" 
+                                                    BorderThickness="1" 
+                                                    CornerRadius="8" 
+                                                    Height="60" 
+                                                    Margin="0,0,0,10" 
+                                                    Background="#1e1e1e"
+                                                    PointerPressed="TaskItem_PointerPressed"
+                                                    PointerEntered="TaskItem_PointerEntered"
+                                                    PointerExited="TaskItem_PointerExited"
+                                                    RightTapped="TaskItem_RightTapped">
+                                                <Border.ContextFlyout>
+                                                    <MenuFlyout>
+                                                        <MenuFlyoutItem Text="删除任务" Icon="Delete" Click="DeleteTask_Click"/>
+                                                    </MenuFlyout>
+                                                </Border.ContextFlyout>
                                                 <Grid Margin="15,0">
                                                     <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
                                                         <TextBlock Text="{Binding Title}" Foreground="White" Margin="5,0,0,0"/>
                                                     </CheckBox>
-                                                    <TextBlock Text="{Binding DueDate}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#666" FontSize="12"/>
+                                                    <TextBlock Text="{Binding DueDate}" 
+                                                               HorizontalAlignment="Right" 
+                                                               VerticalAlignment="Center" 
+                                                               Foreground="#666" 
+                                                               FontSize="12"/>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
-                                <Button x:Name="CompletedButton" Margin="0,20,0,10" Background="#262626" BorderThickness="0" CornerRadius="4" Padding="8,4" Click="ToggleCompleted_Click">
+                                <Button x:Name="CompletedButton" 
+                                        Margin="0,10,0,10" 
+                                        Background="#262626" 
+                                        BorderThickness="0" 
+                                        CornerRadius="4" 
+                                        Padding="8,4" 
+                                        Click="ToggleCompleted_Click">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Glyph="&#xE787;" FontSize="12"/>
                                         <TextBlock x:Name="CompletedText" Text="已完成" FontSize="12"/>
@@ -193,68 +215,172 @@
                                 <ItemsControl x:Name="CompletedTasksList" Visibility="Collapsed">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border BorderBrush="#333" BorderThickness="1" CornerRadius="8" Height="60" Margin="0,0,0,10" Background="#1e1e1e" Opacity="0.6">
+                                            <Border BorderBrush="#333" 
+                                                    BorderThickness="1" 
+                                                    CornerRadius="8" 
+                                                    Height="60" 
+                                                    Margin="0,0,0,10" 
+                                                    Background="#1e1e1e" 
+                                                    Opacity="0.6"
+                                                    PointerPressed="TaskItem_PointerPressed"
+                                                    PointerEntered="TaskItem_PointerEntered"
+                                                    PointerExited="TaskItem_PointerExited"
+                                                    RightTapped="TaskItem_RightTapped">
+                                                <Border.ContextFlyout>
+                                                    <MenuFlyout>
+                                                        <MenuFlyoutItem Text="删除任务" Icon="Delete" Click="DeleteTask_Click"/>
+                                                    </MenuFlyout>
+                                                </Border.ContextFlyout>
                                                 <Grid Margin="15,0">
                                                     <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
                                                         <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888"/>
                                                     </CheckBox>
-                                                    <TextBlock Text="{Binding DueDate}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#555" FontSize="12"/>
+                                                    <TextBlock Text="{Binding DueDate}" 
+                                                               HorizontalAlignment="Right" 
+                                                               VerticalAlignment="Center" 
+                                                               Foreground="#555" 
+                                                               FontSize="12"/>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
 
-                                <Border BorderBrush="#333" BorderThickness="1" CornerRadius="8" Height="60" Margin="0,10,0,0">
-                                    <Button Click="AddTask_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Left">
+                        <!-- 固定底部 - 添加任务 -->
+                        <Grid Grid.Row="2" Background="#161616" Padding="40,10,40,10">
+                            <Grid x:Name="AddTaskContainer">
+                                <!-- 按钮状态 -->
+                                <Border x:Name="AddTaskButton" 
+                                        BorderBrush="#333" 
+                                        BorderThickness="1" 
+                                        CornerRadius="8" 
+                                        Height="60"
+                                        HorizontalAlignment="Stretch"
+                                        Visibility="Visible">
+                                    <Button Click="ShowAddTaskInput_Click" 
+                                            HorizontalAlignment="Stretch" 
+                                            VerticalAlignment="Stretch" 
+                                            Background="Transparent" 
+                                            BorderThickness="0" 
+                                            HorizontalContentAlignment="Left">
                                         <StackPanel Orientation="Horizontal" Spacing="12" Margin="10,0">
                                             <FontIcon Glyph="&#xE710;" FontSize="18" Foreground="#0078d4"/>
                                             <TextBlock Text="添加任务" Foreground="#0078d4" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                 </Border>
-                            </StackPanel>
-                        </Grid>
-                    </ScrollViewer>
-
-                    <!-- 右侧详情面板 -->
-                    <Grid x:Name="DetailPanel" Grid.Column="1" Background="#161616" BorderBrush="#2a2a2a" BorderThickness="1,0,0,0" Padding="20">
-                        <StackPanel Spacing="20">
-                            <Border Background="#222" CornerRadius="12" Padding="15">
-                                <StackPanel Spacing="15">
-                                    <Grid>
-                                        <CheckBox Content="制定计划书" FontSize="18" FontWeight="Bold" Foreground="White"/>
-                                        <FontIcon Glyph="&#xE712;" HorizontalAlignment="Right" FontSize="14" Foreground="#888"/>
-                                    </Grid>
-                                    <StackPanel Spacing="10">
-                                        <Grid>
-                                            <CheckBox IsChecked="True" Content="梳理" FontSize="13" Foreground="#888"/>
-                                            <TextBlock Text="2026年1月1日" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11" Foreground="#555"/>
-                                        </Grid>
-                                        <CheckBox Content="对接" FontSize="13" Foreground="#eee"/>
-                                        <Button Content="+ 添加任务拆分" Background="Transparent" BorderThickness="0" Foreground="#0078d4" Padding="0" FontSize="12"/>
+                                
+                                <!-- 输入框状态 -->
+                                <Border x:Name="AddTaskInputArea" 
+                                        BorderBrush="#333" 
+                                        BorderThickness="1" 
+                                        CornerRadius="8" 
+                                        Height="60"
+                                        HorizontalAlignment="Stretch"
+                                        Background="#1e1e1e"
+                                        Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="10,0">
+                                        <FontIcon Glyph="&#xE710;" FontSize="18" Foreground="#0078d4"/>
+                                        <TextBox x:Name="AddTaskTextBox" 
+                                                 Background="Transparent" 
+                                                 BorderThickness="0"
+                                                 FontSize="14"
+                                                 Foreground="#0078d4"
+                                                 VerticalAlignment="Center"
+                                                 KeyDown="AddTaskInput_KeyDown"
+                                                 LostFocus="AddTaskInput_LostFocus">
+                                            <TextBox.Resources>
+                                                <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent"/>
+                                                <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
+                                            </TextBox.Resources>
+                                        </TextBox>
                                     </StackPanel>
-                                </StackPanel>
-                            </Border>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Grid>
 
-                            <Border Background="#222" CornerRadius="12" Padding="15" Height="120">
-                                <TextBlock Text="添加备注" Foreground="#888" FontSize="13"/>
-                            </Border>
+                    <!-- 右侧抽屉 - 任务详情 -->
+                    <Grid x:Name="DetailDrawer" 
+                          Grid.Column="1" 
+                          Width="320"
+                          Background="#1c1c1c" 
+                          BorderBrush="#2a2a2a" 
+                          BorderThickness="1,0,0,0"
+                          Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                            <Border Background="#222" CornerRadius="12">
-                                <StackPanel>
-                                    <Grid Height="48" Padding="15,0" BorderBrush="#2d2d2d" BorderThickness="0,0,0,1">
-                                        <TextBlock Text="提醒我" VerticalAlignment="Center"/>
-                                    </Grid>
-                                    <Grid Height="48" Padding="15,0" BorderBrush="#2d2d2d" BorderThickness="0,0,0,1">
-                                        <TextBlock Text="添加截止时间 *" VerticalAlignment="Center"/>
-                                    </Grid>
-                                    <Grid Height="48" Padding="15,0">
-                                        <TextBlock Text="重复" VerticalAlignment="Center"/>
-                                    </Grid>
+                        <!-- 抽屉标题 -->
+                        <Grid Grid.Row="0" Height="48" Padding="16,0" BorderBrush="#2a2a2a" BorderThickness="0,0,0,1">
+                            <TextBlock Text="任务详情" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center"/>
+                            <Button Click="CloseDrawer_Click" 
+                                    HorizontalAlignment="Right"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="8">
+                                <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="#888"/>
+                            </Button>
+                        </Grid>
+
+                        <!-- 抽屉内容 -->
+                        <ScrollViewer Grid.Row="1" Padding="16">
+                            <StackPanel Spacing="20">
+                                <!-- 任务标题 -->
+                                <TextBox x:Name="DetailTitle" 
+                                         PlaceholderText="任务标题" 
+                                         Background="#222" 
+                                         BorderThickness="0"
+                                         CornerRadius="8"
+                                         Padding="12,8"
+                                         TextChanged="DetailTitle_TextChanged"/>
+
+                                <!-- 截止日期 -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="截止日期" Foreground="#888" FontSize="12"/>
+                                    <CalendarDatePicker x:Name="DetailDatePicker" 
+                                                        HorizontalAlignment="Stretch"
+                                                        Background="#222"
+                                                        BorderThickness="0"
+                                                        CornerRadius="8"
+                                                        DateChanged="DetailDatePicker_DateChanged"/>
                                 </StackPanel>
-                            </Border>
-                        </StackPanel>
+
+                                <!-- 备注 -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="备注" Foreground="#888" FontSize="12"/>
+                                    <TextBox x:Name="DetailDescription" 
+                                             PlaceholderText="添加备注..." 
+                                             Background="#222" 
+                                             BorderThickness="0"
+                                             CornerRadius="8"
+                                             Padding="12,8"
+                                             AcceptsReturn="True"
+                                             TextWrapping="Wrap"
+                                             Height="120"
+                                             TextChanged="DetailDescription_TextChanged"/>
+                                </StackPanel>
+
+                                <!-- 子任务 -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="子任务" Foreground="#888" FontSize="12"/>
+                                    <Button Content="+ 添加子任务" 
+                                            Background="Transparent" 
+                                            BorderThickness="0" 
+                                            Foreground="#0078d4" 
+                                            Padding="0" 
+                                            FontSize="12"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Grid>
                 </Grid>
             </NavigationView>

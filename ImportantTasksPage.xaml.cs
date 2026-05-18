@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Collections.ObjectModel;
+using System;
 
 namespace Todo
 {
@@ -15,9 +16,9 @@ namespace Todo
             DataContext = this;
             
             // 示例数据
-            Tasks.Add(new TaskItem { Title = "制定计划书1", DueDate = "下周三", IsChecked = false });
-            Tasks.Add(new TaskItem { Title = "制定计划书2", DueDate = "2026年3月1日 周三", IsChecked = false });
-            CompletedTasks.Add(new TaskItem { Title = "制定计划书", DueDate = "2026年2月1日 周三", IsChecked = true });
+            Tasks.Add(new TaskItem { Title = "制定计划书1", DueDate = DateTime.Now.AddDays(3), IsChecked = false });
+            Tasks.Add(new TaskItem { Title = "制定计划书2", DueDate = new DateTime(2026, 3, 1), IsChecked = false });
+            CompletedTasks.Add(new TaskItem { Title = "制定计划书", DueDate = new DateTime(2026, 2, 1), IsChecked = true });
         }
 
         private void TaskCheckBox_Click(object sender, RoutedEventArgs e)
@@ -45,7 +46,7 @@ namespace Todo
 
         private void AddTask_Click(object sender, RoutedEventArgs e)
         {
-            Tasks.Add(new TaskItem { Title = "新任务", DueDate = "今天", IsChecked = false });
+            Tasks.Add(new TaskItem { Title = "新任务", DueDate = DateTime.Now, IsChecked = false });
         }
     }
 }

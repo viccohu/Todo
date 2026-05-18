@@ -43,17 +43,18 @@
 
             <Grid x:Name="DragRegion" Grid.Column="3"/>
 
-            <Button Click="ToggleDesktopMode_Click" 
+            <Button x:Name="PinButton" Click="ToggleDesktopMode_Click" 
                     Background="Transparent" 
                     BorderThickness="0" 
                     Padding="8,4"
-                    Grid.Column="4">
-                <FontIcon Glyph="&#xE774;" FontSize="14" Foreground="#888"/>
+                    Grid.Column="4"
+                    ToolTipService.ToolTip="固定到桌面">
+                <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="14" Foreground="#888"/>
             </Button>
         </Grid>
 
-        <!-- NavigationView 主内容区 -->
-        <Grid Grid.Row="1">
+        <!-- 正常模式：NavigationView 主内容区 -->
+        <Grid x:Name="NormalContent" Grid.Row="1">
             <NavigationView x:Name="NavView"
                             IsBackButtonVisible="Collapsed"
                             IsSettingsVisible="False"
@@ -187,7 +188,7 @@
                                                     <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
                                                         <TextBlock Text="{Binding Title}" Foreground="White" Margin="5,0,0,0"/>
                                                     </CheckBox>
-                                                    <TextBlock Text="{Binding DueDate}" 
+                                                    <TextBlock Text="{Binding DueDateDisplay}" 
                                                                HorizontalAlignment="Right" 
                                                                VerticalAlignment="Center" 
                                                                Foreground="#666" 
@@ -235,7 +236,7 @@
                                                     <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
                                                         <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888"/>
                                                     </CheckBox>
-                                                    <TextBlock Text="{Binding DueDate}" 
+                                                    <TextBlock Text="{Binding DueDateDisplay}" 
                                                                HorizontalAlignment="Right" 
                                                                VerticalAlignment="Center" 
                                                                Foreground="#555" 
@@ -333,57 +334,386 @@
 
                         <!-- 抽屉内容 -->
                         <ScrollViewer Grid.Row="1" Padding="16">
-                            <StackPanel Spacing="20">
-                                <!-- 任务标题 -->
-                                <TextBox x:Name="DetailTitle" 
-                                         PlaceholderText="任务标题" 
-                                         Background="#222" 
-                                         BorderThickness="0"
-                                         CornerRadius="8"
-                                         Padding="12,8"
-                                         TextChanged="DetailTitle_TextChanged"/>
+                            <StackPanel Spacing="16">
+                                <!-- 任务标题（无背景） -->
+                                <CheckBox x:Name="DetailCheckBox" 
+                                          FontSize="16" 
+                                          FontWeight="SemiBold"
+                                          Foreground="White"
+                                          Click="DetailCheckBox_Click">
+                                    <TextBox x:Name="DetailTitle" 
+                                             Background="Transparent" 
+                                             BorderThickness="0"
+                                             FontSize="16"
+                                             FontWeight="SemiBold"
+                                             Foreground="White"
+                                             Padding="0"
+                                             TextChanged="DetailTitle_TextChanged">
+                                        <TextBox.Resources>
+                                            <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
+                                            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
+                                            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
+                                            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent"/>
+                                            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent"/>
+                                            <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
+                                        </TextBox.Resources>
+                                    </TextBox>
+                                </CheckBox>
 
-                                <!-- 截止日期 -->
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="截止日期" Foreground="#888" FontSize="12"/>
-                                    <CalendarDatePicker x:Name="DetailDatePicker" 
-                                                        HorizontalAlignment="Stretch"
-                                                        Background="#222"
-                                                        BorderThickness="0"
-                                                        CornerRadius="8"
-                                                        DateChanged="DetailDatePicker_DateChanged"/>
-                                </StackPanel>
+                                <!-- 子任务区（背景框） -->
+                                <Border Background="#222" CornerRadius="8" Padding="12">
+                                    <StackPanel Spacing="8">
+                                        <!-- 添加子任务按钮/输入框 -->
+                                        <Grid x:Name="AddSubTaskContainer">
+                                            <Button x:Name="AddSubTaskButton" 
+                                                    Click="ShowAddSubTaskInput_Click"
+                                                    Background="Transparent" 
+                                                    BorderThickness="0" 
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left"
+                                                    Padding="0,4">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
+                                                    <TextBlock Text="添加子任务" Foreground="#0078d4" FontSize="14"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <TextBox x:Name="AddSubTaskTextBox" 
+                                                     Background="Transparent" 
+                                                     BorderThickness="0"
+                                                     FontSize="14"
+                                                     Foreground="#0078d4"
+                                                     Visibility="Collapsed"
+                                                     KeyDown="AddSubTaskInput_KeyDown"
+                                                     LostFocus="AddSubTaskInput_LostFocus">
+                                                <TextBox.Resources>
+                                                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent"/>
+                                                    <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
+                                                </TextBox.Resources>
+                                            </TextBox>
+                                        </Grid>
+                                        
+                                        <!-- 子任务列表 -->
+                                        <ItemsControl x:Name="SubTasksList">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,4,0,0">
+                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" 
+                                                                  Click="SubTaskCheckBox_Click"
+                                                                  RightTapped="SubTask_RightTapped">
+                                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                <TextBlock Text="{Binding Title}" Foreground="#ccc" FontSize="13"/>
+                                                                <TextBlock Text="{Binding CreatedAtDisplay}" Foreground="#666" FontSize="11"/>
+                                                            </StackPanel>
+                                                        </CheckBox>
+                                                        <Button Click="DeleteSubTask_Click"
+                                                                HorizontalAlignment="Right"
+                                                                Background="Transparent"
+                                                                BorderThickness="0"
+                                                                Padding="4"
+                                                                Visibility="Collapsed">
+                                                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                                        </Button>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
 
-                                <!-- 备注 -->
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="备注" Foreground="#888" FontSize="12"/>
+                                <!-- 备注区（背景框） -->
+                                <Border Background="#222" CornerRadius="8" Padding="12">
                                     <TextBox x:Name="DetailDescription" 
                                              PlaceholderText="添加备注..." 
-                                             Background="#222" 
+                                             Background="Transparent" 
                                              BorderThickness="0"
-                                             CornerRadius="8"
-                                             Padding="12,8"
+                                             Foreground="#ccc"
                                              AcceptsReturn="True"
                                              TextWrapping="Wrap"
-                                             Height="120"
-                                             TextChanged="DetailDescription_TextChanged"/>
-                                </StackPanel>
+                                             Height="100"
+                                             TextChanged="DetailDescription_TextChanged">
+                                        <TextBox.Resources>
+                                            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#666"/>
+                                            <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
+                                            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
+                                            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
+                                        </TextBox.Resources>
+                                    </TextBox>
+                                </Border>
 
-                                <!-- 子任务 -->
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="子任务" Foreground="#888" FontSize="12"/>
-                                    <Button Content="+ 添加子任务" 
-                                            Background="Transparent" 
-                                            BorderThickness="0" 
-                                            Foreground="#0078d4" 
-                                            Padding="0" 
-                                            FontSize="12"/>
-                                </StackPanel>
+                                <!-- 设置区（背景框） -->
+                                <Border Background="#222" CornerRadius="8">
+                                    <StackPanel>
+                                        <!-- 截止日期 -->
+                                        <Grid Height="48" Padding="12,0">
+                                            <Button x:Name="DueDateButton" 
+                                                    Click="ShowDueDatePicker_Click"
+                                                    Background="Transparent" 
+                                                    BorderThickness="0"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <FontIcon Glyph="&#xE787;" FontSize="16" Foreground="#888"/>
+                                                    <TextBlock x:Name="DueDateText" Text="截止日期" Foreground="#ccc" FontSize="14"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button x:Name="ClearDueDateButton" 
+                                                    Click="ClearDueDate_Click"
+                                                    HorizontalAlignment="Right"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Padding="8"
+                                                    Visibility="Collapsed">
+                                                <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                            </Button>
+                                        </Grid>
+                                        <CalendarDatePicker x:Name="DetailDatePicker" 
+                                                            HorizontalAlignment="Stretch"
+                                                            Background="Transparent"
+                                                            BorderThickness="0"
+                                                            Visibility="Collapsed"
+                                                            DateChanged="DetailDatePicker_DateChanged"/>
+                                        
+                                        <!-- 提醒我 -->
+                                        <Grid Height="48" Padding="12,0" BorderBrush="#2d2d2d" BorderThickness="0,1,0,0">
+                                            <Button x:Name="ReminderButton" 
+                                                    Click="ShowReminderMenu_Click"
+                                                    Background="Transparent" 
+                                                    BorderThickness="0"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <FontIcon Glyph="&#xE715;" FontSize="16" Foreground="#888"/>
+                                                    <TextBlock x:Name="ReminderText" Text="提醒我" Foreground="#ccc" FontSize="14"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+                                                <Button x:Name="RecurringReminderButton" 
+                                                        Click="ToggleRecurringReminder_Click"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Padding="4"
+                                                        Visibility="Collapsed">
+                                                    <FontIcon Glyph="&#xE8FD;" FontSize="12" Foreground="#0078d4"/>
+                                                </Button>
+                                                <Button x:Name="ClearReminderButton" 
+                                                        Click="ClearReminder_Click"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Padding="4"
+                                                        Visibility="Collapsed">
+                                                    <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                        
+                                        <!-- 重复 -->
+                                        <Grid Height="48" Padding="12,0" BorderBrush="#2d2d2d" BorderThickness="0,1,0,0">
+                                            <Button x:Name="RecurrenceButton" 
+                                                    Click="ShowRecurrenceMenu_Click"
+                                                    Background="Transparent" 
+                                                    BorderThickness="0"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <FontIcon Glyph="&#xE8FD;" FontSize="16" Foreground="#888"/>
+                                                    <TextBlock x:Name="RecurrenceText" Text="重复" Foreground="#ccc" FontSize="14"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button x:Name="ClearRecurrenceButton" 
+                                                    Click="ClearRecurrence_Click"
+                                                    HorizontalAlignment="Right"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Padding="8"
+                                                    Visibility="Collapsed">
+                                                <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                            </Button>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>
                 </Grid>
             </NavigationView>
+        </Grid>
+
+        <!-- 紧凑模式：固定桌面小窗口 -->
+        <Grid x:Name="CompactContent" Grid.Row="1" Background="#1e1e1e" Visibility="Collapsed"  >
+            <Grid x:Name="DummyTitleBar" Height="0" Width="0" VerticalAlignment="Top" HorizontalAlignment="Left"  />
+            
+            <Grid Padding="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- 紧凑模式标题栏 -->
+                <Grid Grid.Row="0" Height="48" PointerPressed="CompactTitle_PointerPressed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="T O  D O" 
+                               Grid.Column="0"
+                               FontSize="18" 
+                               FontWeight="Bold"
+                               FontStyle="Italic"
+                               Foreground="White" 
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" 
+                            Click="ToggleDesktopMode_Click" 
+                            Background="Transparent" 
+                            BorderThickness="0" 
+                            Padding="4"
+                            ToolTipService.ToolTip="恢复正常窗口">
+                        <FontIcon Glyph="&#xE196;" FontSize="14" Foreground="#888"/>
+                    </Button>
+                </Grid>
+
+                <!-- 展开按钮（收起状态显示） -->
+                <Button x:Name="ExpandButton" 
+                        Grid.Row="1"
+                        Click="ExpandCompactWindow"
+                        Visibility="Collapsed"
+                        HorizontalAlignment="Stretch"
+                        Background="#262626"
+                        BorderThickness="1"
+                        BorderBrush="#333"
+                        CornerRadius="6"
+                        Padding="0,8"
+                        Margin="0,0,0,8"
+                        ToolTipService.ToolTip="展开窗口">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <FontIcon x:Name="ExpandIcon" Glyph="&#xE96D;" FontSize="12" Foreground="#888"/>
+                        <TextBlock Text="展开" FontSize="12" Foreground="#888"/>
+                    </StackPanel>
+                </Button>
+
+                <!-- 紧凑模式任务列表 -->
+                <ScrollViewer x:Name="CompactScrollViewer" Grid.Row="2">
+                    <StackPanel>
+                        <ItemsControl x:Name="CompactTasksList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="12,0,12,6">
+                                        <Border BorderBrush="#333" 
+                                                BorderThickness="1" 
+                                                CornerRadius="6" 
+                                                Background="#262626"
+                                                Padding="10,8">
+                                            <StackPanel>
+                                                <Grid MinHeight="28">
+                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
+                                                        <TextBlock Text="{Binding Title}" Foreground="White" FontSize="13" Margin="4,0,0,0"/>
+                                                    </CheckBox>
+                                                    <TextBlock Text="{Binding DueDateDisplay}" 
+                                                               HorizontalAlignment="Right" 
+                                                               VerticalAlignment="Center" 
+                                                               Foreground="#666" 
+                                                               FontSize="11"/>
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid MinHeight="26" Margin="0,2,0,0">
+                                                                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
+                                                                    <TextBlock Text="{Binding Title}" Foreground="#aaa" FontSize="12"/>
+                                                                </CheckBox>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Button x:Name="CompactCompletedButton" 
+                                Margin="12,10,0,10" 
+                                Background="#262626" 
+                                BorderThickness="0" 
+                                CornerRadius="4" 
+                                Padding="12,6" 
+                                Click="CompactToggleCompleted_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE787;" FontSize="12" Foreground="#888"/>
+                                <TextBlock x:Name="CompactCompletedText" Text="已完成" FontSize="12" Foreground="#888"/>
+                                <FontIcon x:Name="CompactCompletedArrow" Glyph="&#xE70D;" FontSize="10" Foreground="#888"/>
+                            </StackPanel>
+                        </Button>
+
+                        <ItemsControl x:Name="CompactCompletedTasksList" Visibility="Collapsed">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,0,0,6">
+                                        <Border BorderBrush="#333" 
+                                                BorderThickness="1" 
+                                                CornerRadius="6" 
+                                                Background="#262626" 
+                                                Opacity="0.6"
+                                                Padding="10,8">
+                                            <StackPanel>
+                                                <Grid MinHeight="28">
+                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
+                                                        <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888" FontSize="13" Margin="4,0,0,0"/>
+                                                    </CheckBox>
+                                                    <TextBlock Text="{Binding DueDateDisplay}" 
+                                                               HorizontalAlignment="Right" 
+                                                               VerticalAlignment="Center" 
+                                                               Foreground="#555" 
+                                                               FontSize="11"/>
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid MinHeight="26" Margin="0,2,0,0">
+                                                                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
+                                                                    <TextBlock Text="{Binding Title}" 
+                                                                               TextDecorations="Strikethrough"
+                                                                               Foreground="#666" 
+                                                                               FontSize="12"/>
+                                                                </CheckBox>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 底部收起按钮 -->
+                <Button x:Name="CompactMinimizeButton" 
+                        Grid.Row="3" 
+                        Click="CompactMinimize_Click"
+                        Visibility="Visible"
+                        HorizontalAlignment="Stretch"
+                        Background="#262626"
+                        BorderThickness="1"
+                        BorderBrush="#333"
+                        CornerRadius="6"
+                        Padding="0,8"
+                        Margin="0,10,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <FontIcon x:Name="CompactMinimizeIcon" Glyph="&#xE96E;" FontSize="12" Foreground="#888"/>
+                        <TextBlock x:Name="CompactMinimizeText" Text="收起" FontSize="12" Foreground="#888"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
         </Grid>
     </Grid>
 </Window>

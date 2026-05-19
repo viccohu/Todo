@@ -379,6 +379,41 @@ namespace Todo.Services
             command.ExecuteNonQuery();
         }
 
+        public void UpdateSubTaskTitle(int id, string title)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE SubTasks SET Title = $title WHERE Id = $id";
+            command.Parameters.AddWithValue("$title", title);
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+
+        public List<SubTask> GetSubTasksForTask(int taskId)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var subTasks = new List<SubTask>();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, ParentTaskId, Title, IsChecked, CreatedAt FROM SubTasks WHERE ParentTaskId = $taskId ORDER BY CreatedAt";
+            command.Parameters.AddWithValue("$taskId", taskId);
+            
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                subTasks.Add(new SubTask
+                {
+                    Id = reader.GetInt32(0),
+                    ParentTaskId = reader.GetInt32(1),
+                    Title = reader.GetString(2),
+                    IsChecked = reader.GetInt32(3) == 1,
+                    CreatedAt = DateTime.Parse(reader.GetString(4))
+                });
+            }
+            return subTasks;
+        }
+
         public Reminder AddReminder(int taskId, ReminderType type, DateTime? dateTime = null, bool isRecurring = false, RecurringInterval interval = RecurringInterval.None)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
@@ -621,31 +656,41 @@ namespace Todo.Services
             command.ExecuteNonQuery();
         }
         
-        public List<Reminder> GetDueReminders(DateTime currentTime)
+        public List<Reminder> GetDueReminders(DateTime currentTime, TimeSpan? lookbackWindow = null)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var reminders = new List<Reminder>();
             var command = connection.CreateCommand();
             command.CommandText = @"SELECT r.Id, r.TaskId, r.ReminderType, r.ReminderDateTime, r.IsRecurring, 
-                                   r.RecurringInterval, r.CustomDays, r.SameDayIntervalMinutes, r.EnableMultiDayReminders,
-                                   t.Title 
+                                   r.RecurringInterval, r.CustomDays, r.SameDayIntervalMinutes, r.EnableMultiDayReminders
                                    FROM Reminders r 
                                    INNER JOIN Tasks t ON r.TaskId = t.Id 
                                    WHERE r.ReminderDateTime IS NOT NULL 
-                                   AND datetime(r.ReminderDateTime) <= datetime($currentTime)
                                    AND t.IsChecked = 0";
-            command.Parameters.AddWithValue("$currentTime", currentTime.ToString("o"));
             
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
+                DateTime? reminderDateTime = reader.IsDBNull(3)
+                    ? null
+                    : DateTime.Parse(reader.GetString(3));
+                if (!reminderDateTime.HasValue || reminderDateTime.Value > currentTime)
+                {
+                    continue;
+                }
+
+                if (lookbackWindow.HasValue && reminderDateTime.Value < currentTime.Subtract(lookbackWindow.Value))
+                {
+                    continue;
+                }
+
                 reminders.Add(new Reminder
                 {
                     Id = reader.GetInt32(0),
                     TaskId = reader.GetInt32(1),
                     ReminderType = (ReminderType)reader.GetInt32(2),
-                    ReminderDateTime = reader.IsDBNull(3) ? null : DateTime.Parse(reader.GetString(3)),
+                    ReminderDateTime = reminderDateTime,
                     IsRecurring = reader.GetInt32(4) == 1,
                     RecurringInterval = (RecurringInterval)reader.GetInt32(5),
                     CustomDays = reader.IsDBNull(6) ? null : reader.GetString(6),

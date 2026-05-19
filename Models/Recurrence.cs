@@ -70,11 +70,11 @@ namespace Todo.Models
         {
             return RecurrenceType switch
             {
-                RecurrenceType.Daily => NextDueDate.AddDays(1),
-                RecurrenceType.Weekly => NextDueDate.AddDays(7),
-                RecurrenceType.Monthly => NextDueDate.AddMonths(1),
-                RecurrenceType.Yearly => NextDueDate.AddYears(1),
-                _ => NextDueDate
+                RecurrenceType.Daily => BaseDate.AddDays(1),
+                RecurrenceType.Weekly => BaseDate.AddDays(7),
+                RecurrenceType.Monthly => BaseDate.AddMonths(1),
+                RecurrenceType.Yearly => BaseDate.AddYears(1),
+                _ => BaseDate
             };
         }
         

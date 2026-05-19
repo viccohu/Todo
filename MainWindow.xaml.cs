@@ -1,16 +1,20 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using System.Collections.ObjectModel;
 using System;
 using System.ComponentModel;
 using Microsoft.UI.Windowing;
 using Microsoft.UI;
 using Windows.Graphics;
+using Windows.Foundation;
 using Todo.Models;
 using Todo.Services;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace Todo
 {
@@ -41,8 +45,10 @@ namespace Todo
         {
             this.InitializeComponent();
             InitializeCustomTitleBar();
+            InitializeCalendarBounds();
             InitializeData();
             LoadCustomGroups();
+            ReminderService.Instance.TaskCompletedFromNotification += ReminderService_TaskCompletedFromNotification;
             
             NavView.SelectedItem = NavView.MenuItems[1];
         }
@@ -52,6 +58,13 @@ namespace Todo
             var allTasks = _dbService.GetTasks();
             foreach (var task in allTasks)
             {
+                // 加载每个任务的子任务
+                var subTasks = _dbService.GetSubTasksForTask(task.Id);
+                foreach (var subTask in subTasks)
+                {
+                    task.SubTasks.Add(subTask);
+                }
+                
                 if (task.IsChecked)
                 {
                     CompletedTasks.Add(task);
@@ -64,6 +77,15 @@ namespace Todo
             
             TasksList.ItemsSource = Tasks;
             CompletedTasksList.ItemsSource = CompletedTasks;
+        }
+
+        private void InitializeCalendarBounds()
+        {
+            var today = new DateTimeOffset(DateTime.Today);
+            DetailCalendarView.MinDate = today;
+            DetailCalendarView.SetDisplayDate(today);
+            ReminderCalendarView.MinDate = today;
+            ReminderCalendarView.SetDisplayDate(today);
         }
 
         private void LoadCustomGroups()
@@ -232,8 +254,14 @@ namespace Todo
 
         private void TaskItem_PointerEntered(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is Border border)
+            if (sender is Border border && border.DataContext is TaskItem task)
             {
+                // 如果任务被选中，不改变背景
+                if (_selectedTask == task)
+                {
+                    return;
+                }
+                
                 border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
                     Microsoft.UI.ColorHelper.FromArgb(255, 0x25, 0x25, 0x25));
             }
@@ -258,6 +286,7 @@ namespace Todo
 
         private void UpdateTaskItemSelection(TaskItem? selectedTask, Border? selectedBorder)
         {
+            // 更新数据模型的IsSelected属性
             foreach (var item in Tasks)
             {
                 item.IsSelected = (item == selectedTask);
@@ -266,6 +295,72 @@ namespace Todo
             {
                 item.IsSelected = (item == selectedTask);
             }
+            
+            // 遍历未完成任务列表，清除其他高亮
+            UpdateBordersBackground(TasksList, selectedBorder);
+            
+            // 遍历已完成任务列表，清除其他高亮
+            UpdateBordersBackground(CompletedTasksList, selectedBorder);
+        }
+        
+        private void UpdateBordersBackground(ItemsControl itemsControl, Border? selectedBorder)
+        {
+            if (itemsControl.ItemsPanel == null) return;
+            
+            // 使用 FindVisualChildren 获取所有 Border 元素
+            var allBorders = FindVisualChildren<Border>(itemsControl);
+            foreach (var itemBorder in allBorders)
+            {
+                // 只处理数据模板中的 Border（有 DataContext 的）
+                if (itemBorder.DataContext is TaskItem)
+                {
+                    if (itemBorder == selectedBorder)
+                    {
+                        // 设置选中高亮
+                        itemBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                            Microsoft.UI.ColorHelper.FromArgb(255, 0x2a, 0x2a, 0x2a));
+                    }
+                    else
+                    {
+                        // 清除高亮
+                        itemBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                            Microsoft.UI.ColorHelper.FromArgb(255, 0x1e, 0x1e, 0x1e));
+                    }
+                }
+            }
+        }
+        
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is T typedChild)
+                {
+                    return typedChild;
+                }
+                var result = FindVisualChild<T>(child);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+            return null;
+        }
+        
+        private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
+        {
+            var result = new List<T>();
+            for (int i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is T typedChild)
+                {
+                    result.Add(typedChild);
+                }
+                result.AddRange(FindVisualChildren<T>(child));
+            }
+            return result;
         }
 
         private void TaskItem_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -277,6 +372,7 @@ namespace Todo
         {
             if (sender is MenuFlyoutItem item && item.DataContext is TaskItem task)
             {
+                ReminderService.Instance.RemoveScheduledReminderNotifications(task.Id);
                 _dbService.DeleteTask(task.Id);
                 
                 if (Tasks.Contains(task))
@@ -301,26 +397,24 @@ namespace Todo
             DetailTitle.Text = task.Title;
             DetailDescription.Text = task.Description;
             
+            // 从数据库加载子任务
+            var subTasks = _dbService.GetSubTasksForTask(task.Id);
+            _selectedTask.SubTasks.Clear();
+            foreach (var subTask in subTasks)
+            {
+                _selectedTask.SubTasks.Add(subTask);
+            }
             SubTasksList.ItemsSource = task.SubTasks;
             
-            DueDateText.Text = task.DueDate.HasValue ? task.DueDate.Value.ToString("M月d日") : "截止日期";
-            ClearDueDateButton.Visibility = task.DueDate.HasValue ? Visibility.Visible : Visibility.Collapsed;
+            RefreshSelectedTaskDueDateControls();
             
             var reminders = _dbService.GetRemindersForTask(task.Id);
-            if (reminders.Count > 0)
+            task.Reminders.Clear();
+            foreach (var reminder in reminders)
             {
-                var reminder = reminders[0];
-                if (reminder.ReminderDateTime.HasValue)
-                {
-                    ReminderText.Text = reminder.ReminderDateTime.Value.ToString("M月d日 HH:mm");
-                }
-                ClearReminderButton.Visibility = Visibility.Visible;
+                task.Reminders.Add(reminder);
             }
-            else
-            {
-                ReminderText.Text = "提醒我";
-                ClearReminderButton.Visibility = Visibility.Collapsed;
-            }
+            RefreshSelectedTaskReminderControls();
             
             var recurrence = _dbService.GetRecurrenceForTask(task.Id);
             if (recurrence != null && recurrence.RecurrenceType != RecurrenceType.None)
@@ -343,11 +437,42 @@ namespace Todo
             TaskItemPropertyChanged?.Invoke(task, new System.ComponentModel.PropertyChangedEventArgs("SubTasks"));
         }
 
+        private void RefreshSelectedTaskDueDateControls()
+        {
+            if (_selectedTask == null) return;
+
+            DueDateText.Text = _selectedTask.DueDate.HasValue
+                ? _selectedTask.DueDate.Value.ToString("M月d日")
+                : "截止日期";
+            ClearDueDateButton.Visibility = _selectedTask.DueDate.HasValue
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        private void RefreshSelectedTaskReminderControls()
+        {
+            if (_selectedTask == null) return;
+
+            var firstReminder = _selectedTask.Reminders
+                .Where(reminder => reminder.ReminderDateTime.HasValue)
+                .OrderBy(reminder => reminder.ReminderDateTime)
+                .FirstOrDefault();
+
+            ReminderText.Text = firstReminder?.ReminderDateTime?.ToString("M月d日 HH:mm") ?? "提醒我";
+            ClearReminderButton.Visibility = firstReminder != null
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
         private void CloseDrawer()
         {
             DetailDrawer.Visibility = Visibility.Collapsed;
             _isDrawerOpen = false;
             _selectedTask = null;
+            
+            // 关闭抽屉时清除所有任务项的高亮
+            UpdateBordersBackground(TasksList, null);
+            UpdateBordersBackground(CompletedTasksList, null);
         }
 
         private void CloseDrawer_Click(object sender, RoutedEventArgs e)
@@ -405,6 +530,67 @@ namespace Todo
             }
         }
 
+        private void ReminderService_TaskCompletedFromNotification(object? sender, TaskCompletedFromNotificationEventArgs args)
+        {
+            DispatcherQueue.TryEnqueue(() => CompleteTaskInUi(args.CompletedTaskId, args.NewTaskId));
+        }
+
+        private void CompleteTaskInUi(int taskId, int? newTaskId)
+        {
+            var task = Tasks.FirstOrDefault(item => item.Id == taskId);
+            if (task == null)
+            {
+                task = CompletedTasks.FirstOrDefault(item => item.Id == taskId);
+            }
+
+            if (task != null)
+            {
+                task.IsChecked = true;
+                task.CompletedAt = DateTime.Now;
+                Tasks.Remove(task);
+                if (!CompletedTasks.Contains(task))
+                {
+                    CompletedTasks.Add(task);
+                }
+            }
+
+            if (newTaskId.HasValue &&
+                Tasks.All(item => item.Id != newTaskId.Value) &&
+                CompletedTasks.All(item => item.Id != newTaskId.Value))
+            {
+                var newTask = _dbService.GetTaskById(newTaskId.Value);
+                if (newTask != null && !newTask.IsChecked)
+                {
+                    foreach (var subTask in _dbService.GetSubTasksForTask(newTask.Id))
+                    {
+                        newTask.SubTasks.Add(subTask);
+                    }
+
+                    Tasks.Add(newTask);
+                }
+            }
+
+            if (_selectedTask?.Id == taskId)
+            {
+                CloseDrawer();
+            }
+
+            UpdateBordersBackground(TasksList, null);
+            UpdateBordersBackground(CompletedTasksList, null);
+        }
+
+        private static DateTime CalculateNextRecurringDueDate(RecurrenceType recurrenceType, DateTime currentDueDate)
+        {
+            return recurrenceType switch
+            {
+                RecurrenceType.Daily => currentDueDate.AddDays(1),
+                RecurrenceType.Weekly => currentDueDate.AddDays(7),
+                RecurrenceType.Monthly => currentDueDate.AddMonths(1),
+                RecurrenceType.Yearly => currentDueDate.AddYears(1),
+                _ => currentDueDate
+            };
+        }
+
         private void TaskCheckBox_Click(object sender, RoutedEventArgs e)
         {
             if (sender is CheckBox cb && cb.DataContext is TaskItem task)
@@ -413,24 +599,27 @@ namespace Todo
                 
                 if (cb.IsChecked ?? false)
                 {
+                    ReminderService.Instance.RemoveScheduledReminderNotifications(task.Id);
+
                     var recurrence = _dbService.GetRecurrenceForTask(task.Id);
                     if (recurrence != null && recurrence.RecurrenceType != RecurrenceType.None)
                     {
-                        var newDueDate = recurrence.CalculateNextDueDate();
+                        var sourceDueDate = task.DueDate ?? recurrence.BaseDate;
+                        var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate);
                         
                         var newTask = _dbService.AddTask(task.Title, newDueDate, null, task.ListId);
                         newTask.Description = task.Description;
                         _dbService.UpdateTask(newTask);
                         
-                        recurrence.NextDueDate = newDueDate;
+                        recurrence.NextDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, newDueDate);
                         _dbService.UpdateRecurrence(recurrence);
                         
                         var oldReminders = _dbService.GetRemindersForTask(task.Id);
                         foreach (var oldReminder in oldReminders)
                         {
-                            if (oldReminder.ReminderDateTime.HasValue && task.DueDate.HasValue)
+                            if (oldReminder.ReminderDateTime.HasValue)
                             {
-                                var dayOffset = (oldReminder.ReminderDateTime.Value.Date - task.DueDate.Value.Date).Days;
+                                var dayOffset = (oldReminder.ReminderDateTime.Value.Date - sourceDueDate.Date).Days;
                                 var newReminderDate = newDueDate.Date.AddDays(dayOffset).Add(oldReminder.ReminderDateTime.Value.TimeOfDay);
                                 
                                 if (newReminderDate > DateTime.Now)
@@ -451,7 +640,13 @@ namespace Todo
                             }
                         }
                         
+                        var newRecurrence = _dbService.AddRecurrence(newTask.Id, recurrence.RecurrenceType, newDueDate);
+                        newRecurrence.NextDueDate = _dbService.CalculateNextRecurrenceDate(recurrence.RecurrenceType, newDueDate);
+                        _dbService.UpdateRecurrence(newRecurrence);
+                        newTask.Recurrence = newRecurrence;
+                        
                         Tasks.Add(newTask);
+                        ReminderService.Instance.ScheduleReminderNotificationsForTask(newTask.Id);
                     }
                     
                     if (Tasks.Contains(task))
@@ -459,6 +654,11 @@ namespace Todo
                         Tasks.Remove(task);
                         CompletedTasks.Add(task);
                     }
+                    
+                    // 完成任务时清除所有高亮
+                    _selectedTask = null;
+                    UpdateBordersBackground(TasksList, null);
+                    UpdateBordersBackground(CompletedTasksList, null);
                 }
                 else
                 {
@@ -623,18 +823,68 @@ namespace Todo
             }
         }
 
+        private Timer? _subTaskTitleTimer;
+
+        private void SubTaskTitle_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            _subTaskTitleTimer?.Dispose();
+            _subTaskTitleTimer = new Timer(state =>
+            {
+                if (sender is TextBox tb && tb.DataContext is SubTask subTask)
+                {
+                    _dbService.UpdateSubTaskTitle(subTask.Id, tb.Text);
+                }
+            }, null, 300, Timeout.Infinite);
+        }
+
+        private void SubTaskTitle_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is TextBox tb && tb.DataContext is SubTask subTask)
+            {
+                _dbService.UpdateSubTaskTitle(subTask.Id, tb.Text);
+            }
+        }
+
         private void SubTask_RightTapped(object sender, RightTappedRoutedEventArgs e)
         {
+            if (sender is FrameworkElement element)
+            {
+                var subTask = element.DataContext as SubTask;
+                if (subTask == null) return;
+                
+                var menu = new MenuFlyout();
+                var deleteItem = new MenuFlyoutItem() { Text = "删除", Icon = new SymbolIcon(Symbol.Delete) };
+                deleteItem.Click += (s, args) =>
+                {
+                    if (_selectedTask != null)
+                    {
+                        _dbService.DeleteSubTask(subTask.Id);
+                        _selectedTask.SubTasks.Remove(subTask);
+                        SubTasksList.ItemsSource = null;
+                        SubTasksList.ItemsSource = _selectedTask.SubTasks;
+                    }
+                };
+                menu.Items.Add(deleteItem);
+                menu.ShowAt(element, e.GetPosition(element));
+                e.Handled = true;
+            }
         }
 
         private void DeleteSubTask_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.DataContext is SubTask subTask && _selectedTask != null)
+            try
             {
-                _dbService.DeleteSubTask(subTask.Id);
-                _selectedTask.SubTasks.Remove(subTask);
-                SubTasksList.ItemsSource = null;
-                SubTasksList.ItemsSource = _selectedTask.SubTasks;
+                if (sender is Button btn && btn.DataContext is SubTask subTask && _selectedTask != null)
+                {
+                    _dbService.DeleteSubTask(subTask.Id);
+                    _selectedTask.SubTasks.Remove(subTask);
+                    SubTasksList.ItemsSource = null;
+                    SubTasksList.ItemsSource = _selectedTask.SubTasks;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"删除子任务失败: {ex.Message}");
             }
         }
 
@@ -644,10 +894,25 @@ namespace Todo
                 ? Visibility.Collapsed 
                 : Visibility.Visible;
             
-            if (_selectedTask?.DueDate != null)
+            if (DetailCalendarView.Visibility == Visibility.Visible)
             {
+                var today = new DateTimeOffset(DateTime.Today);
+                DetailCalendarView.MinDate = today;
+                DetailCalendarView.SetDisplayDate(today);
                 DetailCalendarView.SelectedDates.Clear();
-                DetailCalendarView.SelectedDates.Add(_selectedTask.DueDate.Value);
+                
+                if (_selectedTask?.DueDate != null && _selectedTask.DueDate.Value.Date >= DateTime.Today)
+                {
+                    DetailCalendarView.SelectedDates.Add(_selectedTask.DueDate.Value);
+                }
+            }
+            
+            if (DetailCalendarView.Visibility == Visibility.Visible && DrawerScrollViewer != null)
+            {
+                DrawerScrollViewer.UpdateLayout();
+                var transform = DetailCalendarView.TransformToVisual(DrawerScrollViewer);
+                var position = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+                DrawerScrollViewer.ChangeView(null, position.Y - 50, null);
             }
         }
         
@@ -663,13 +928,9 @@ namespace Todo
                 }
                 
                 _selectedTask.DueDate = selectedDate;
-                DueDateText.Text = selectedDate.ToString("M月d日");
-                ClearDueDateButton.Visibility = Visibility.Visible;
+                RefreshSelectedTaskDueDateControls();
                 
                 _dbService.UpdateTask(_selectedTask);
-                
-                TaskItemPropertyChanged?.Invoke(_selectedTask, new PropertyChangedEventArgs(nameof(_selectedTask.DueDateDisplay)));
-                
                 DetailCalendarView.Visibility = Visibility.Collapsed;
             }
         }
@@ -679,8 +940,7 @@ namespace Todo
             if (_selectedTask != null)
             {
                 _selectedTask.DueDate = null;
-                DueDateText.Text = "截止日期";
-                ClearDueDateButton.Visibility = Visibility.Collapsed;
+                RefreshSelectedTaskDueDateControls();
                 
                 _dbService.UpdateTask(_selectedTask);
             }
@@ -688,52 +948,100 @@ namespace Todo
         
         private void ShowReminderDialog_Click(object sender, RoutedEventArgs e)
         {
-            ReminderSettingsPanel.Visibility = ReminderSettingsPanel.Visibility == Visibility.Visible 
-                ? Visibility.Collapsed 
-                : Visibility.Visible;
-            
-            if (_selectedTask != null)
+            try
             {
-                var reminders = _dbService.GetRemindersForTask(_selectedTask.Id);
-                if (reminders.Count > 0)
+                ReminderSettingsPanel.Visibility = ReminderSettingsPanel.Visibility == Visibility.Visible 
+                    ? Visibility.Collapsed 
+                    : Visibility.Visible;
+                
+                if (ReminderCalendarView != null)
                 {
-                    var reminder = reminders[0];
-                    if (reminder.ReminderDateTime.HasValue)
+                    var today = new DateTimeOffset(DateTime.Today);
+                    ReminderCalendarView.MinDate = today;
+                    ReminderCalendarView.SetDisplayDate(today);
+                    ReminderCalendarView.SelectedDates.Clear();
+                }
+                
+                if (_selectedTask != null)
+                {
+                    var reminders = _dbService.GetRemindersForTask(_selectedTask.Id);
+                    if (reminders.Count > 0 && ReminderCalendarView != null)
                     {
-                        ReminderTimePicker.SelectedTime = reminder.ReminderDateTime.Value.TimeOfDay;
-                    }
-                    EnableSameDayReminderToggle.IsOn = reminder.EnableMultiDayReminders;
-                    SameDayIntervalComboBox.IsEnabled = reminder.EnableMultiDayReminders;
-                    if (reminder.SameDayIntervalMinutes > 0)
-                    {
-                        for (int i = 0; i < SameDayIntervalComboBox.Items.Count; i++)
+                        foreach (var reminder in reminders)
                         {
-                            if (SameDayIntervalComboBox.Items[i] is ComboBoxItem item && 
-                                int.TryParse(item.Tag?.ToString(), out int minutes) && 
-                                minutes == reminder.SameDayIntervalMinutes)
+                            if (reminder.ReminderDateTime.HasValue)
                             {
-                                SameDayIntervalComboBox.SelectedIndex = i;
-                                break;
+                                if (reminder.ReminderDateTime.Value.Date >= DateTime.Today)
+                                {
+                                    ReminderCalendarView.SelectedDates.Add(reminder.ReminderDateTime.Value);
+                                }
+                                if (ReminderTimePicker != null)
+                                {
+                                    ReminderTimePicker.SelectedTime = reminder.ReminderDateTime.Value.TimeOfDay;
+                                }
+                            }
+                        }
+                        var firstReminder = reminders[0];
+                        if (EnableSameDayReminderToggle != null)
+                        {
+                            EnableSameDayReminderToggle.IsOn = firstReminder.EnableMultiDayReminders;
+                            SameDayIntervalComboBox.IsEnabled = firstReminder.EnableMultiDayReminders;
+                        }
+                        if (firstReminder.SameDayIntervalMinutes > 0 && SameDayIntervalComboBox != null)
+                        {
+                            for (int i = 0; i < SameDayIntervalComboBox.Items.Count; i++)
+                            {
+                                if (SameDayIntervalComboBox.Items[i] is ComboBoxItem item && 
+                                    int.TryParse(item.Tag?.ToString(), out int minutes) && 
+                                    minutes == firstReminder.SameDayIntervalMinutes)
+                                {
+                                    SameDayIntervalComboBox.SelectedIndex = i;
+                                    break;
+                                }
                             }
                         }
                     }
+                    else
+                    {
+                        if (ReminderTimePicker != null)
+                        {
+                            ReminderTimePicker.SelectedTime = TimeSpan.FromHours(9);
+                        }
+                        if (EnableSameDayReminderToggle != null)
+                        {
+                            EnableSameDayReminderToggle.IsOn = false;
+                            SameDayIntervalComboBox.IsEnabled = false;
+                        }
+                        if (SameDayIntervalComboBox != null)
+                        {
+                            SameDayIntervalComboBox.SelectedIndex = -1;
+                        }
+                    }
                 }
-                else
+                
+                if (ReminderSettingsPanel.Visibility == Visibility.Visible && DrawerScrollViewer != null)
                 {
-                    ReminderTimePicker.SelectedTime = TimeSpan.FromHours(9);
-                    EnableSameDayReminderToggle.IsOn = false;
-                    SameDayIntervalComboBox.IsEnabled = false;
-                    SameDayIntervalComboBox.SelectedIndex = -1;
+                    DrawerScrollViewer.UpdateLayout();
+                    var transform = ReminderSettingsPanel.TransformToVisual(DrawerScrollViewer);
+                    var position = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+                    DrawerScrollViewer.ChangeView(null, position.Y - 50, null);
                 }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ShowReminderDialog error: {ex.Message}");
             }
         }
         
         private void EnableSameDayReminderToggle_Toggled(object sender, RoutedEventArgs e)
         {
-            SameDayIntervalComboBox.IsEnabled = EnableSameDayReminderToggle.IsOn;
-            if (!EnableSameDayReminderToggle.IsOn)
+            if (SameDayIntervalComboBox != null && EnableSameDayReminderToggle != null)
             {
-                SameDayIntervalComboBox.SelectedIndex = -1;
+                SameDayIntervalComboBox.IsEnabled = EnableSameDayReminderToggle.IsOn;
+                if (!EnableSameDayReminderToggle.IsOn)
+                {
+                    SameDayIntervalComboBox.SelectedIndex = -1;
+                }
             }
         }
         
@@ -748,59 +1056,98 @@ namespace Todo
         
         private void ConfirmReminderSettings_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedTask != null)
+            try
             {
-                var selectedDates = ReminderCalendarView.SelectedDates;
-                var reminderTime = ReminderTimePicker.SelectedTime ?? TimeSpan.FromHours(9);
-                
-                _dbService.DeleteRemindersForTask(_selectedTask.Id);
-                
-                if (selectedDates.Count > 0)
+                if (_selectedTask != null)
                 {
-                    foreach (var date in selectedDates)
+                    var selectedDates = ReminderCalendarView?.SelectedDates;
+                    var reminderTime = ReminderTimePicker?.SelectedTime ?? TimeSpan.FromHours(9);
+                    
+                    System.Diagnostics.Debug.WriteLine($"ConfirmReminder: TaskId={_selectedTask.Id}, SelectedDates={selectedDates?.Count ?? 0}, Time={reminderTime}");
+                    
+                    _dbService.DeleteRemindersForTask(_selectedTask.Id);
+                    _selectedTask.Reminders.Clear();
+                    
+                    if (selectedDates != null && selectedDates.Count > 0)
                     {
-                        var reminderDateTime = new DateTime(
-                            date.Year, date.Month, date.Day,
-                            (int)reminderTime.TotalHours,
-                            (int)(reminderTime.TotalMinutes % 60),
-                            0);
-                        
-                        if (reminderDateTime < DateTime.Now)
+                        var savedReminderTimes = new List<DateTime>();
+                        foreach (var date in selectedDates)
                         {
-                            continue;
+                            var reminderDateTime = new DateTime(
+                                date.Year, date.Month, date.Day,
+                                (int)reminderTime.TotalHours,
+                                (int)(reminderTime.TotalMinutes % 60),
+                                0);
+                            
+                            System.Diagnostics.Debug.WriteLine($"ConfirmReminder: Processing date={date:yyyy-MM-dd}, reminderDateTime={reminderDateTime:yyyy-MM-dd HH:mm}, now={DateTime.Now:yyyy-MM-dd HH:mm}");
+                            
+                            var reminder = new Reminder
+                            {
+                                TaskId = _selectedTask.Id,
+                                ReminderType = ReminderType.Custom,
+                                ReminderDateTime = reminderDateTime,
+                                EnableMultiDayReminders = EnableSameDayReminderToggle?.IsOn ?? false,
+                                SameDayIntervalMinutes = (EnableSameDayReminderToggle?.IsOn ?? false) && SameDayIntervalComboBox?.SelectedItem is ComboBoxItem item
+                                    ? int.Parse(item.Tag.ToString())
+                                    : 0
+                            };
+                            
+                            _dbService.AddReminderWithDetails(reminder);
+                            _selectedTask.Reminders.Add(reminder);
+                            savedReminderTimes.Add(reminderDateTime);
+                            System.Diagnostics.Debug.WriteLine($"ConfirmReminder: Saved reminder Id={reminder.Id}, DateTime={reminderDateTime:yyyy-MM-dd HH:mm}");
                         }
                         
-                        if (_selectedTask.DueDate.HasValue && reminderDateTime > _selectedTask.DueDate.Value)
+                        if (savedReminderTimes.Count > 0)
                         {
-                            continue;
+                            var firstReminderTime = savedReminderTimes.OrderBy(time => time).First();
+                            if (ReminderText != null)
+                            {
+                                ReminderText.Text = savedReminderTimes.Count == 1
+                                    ? firstReminderTime.ToString("M月d日 HH:mm")
+                                    : $"已设置 {savedReminderTimes.Count} 个提醒";
+                            }
+                            if (ClearReminderButton != null)
+                            {
+                                ClearReminderButton.Visibility = Visibility.Visible;
+                            }
                         }
-                        
-                        var reminder = new Reminder
+                        else
                         {
-                            TaskId = _selectedTask.Id,
-                            ReminderType = ReminderType.Custom,
-                            ReminderDateTime = reminderDateTime,
-                            EnableMultiDayReminders = EnableSameDayReminderToggle.IsOn,
-                            SameDayIntervalMinutes = EnableSameDayReminderToggle.IsOn && SameDayIntervalComboBox.SelectedItem is ComboBoxItem item
-                                ? int.Parse(item.Tag.ToString())
-                                : 0
-                        };
-                        
-                        _dbService.AddReminderWithDetails(reminder);
+                            if (ReminderText != null)
+                            {
+                                ReminderText.Text = "提醒我";
+                            }
+                            if (ClearReminderButton != null)
+                            {
+                                ClearReminderButton.Visibility = Visibility.Collapsed;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ReminderText != null)
+                        {
+                            ReminderText.Text = "提醒我";
+                        }
+                        if (ClearReminderButton != null)
+                        {
+                            ClearReminderButton.Visibility = Visibility.Collapsed;
+                        }
                     }
                     
-                    ReminderText.Text = selectedDates.Count == 1
-                        ? $"{selectedDates[0].ToString("M月d日")} {reminderTime.Hours:D2}:{reminderTime.Minutes:D2}"
-                        : $"已设置 {selectedDates.Count} 个提醒";
-                    ClearReminderButton.Visibility = Visibility.Visible;
+                    if (ReminderSettingsPanel != null)
+                    {
+                        ReminderSettingsPanel.Visibility = Visibility.Collapsed;
+                    }
+
+                    ReminderService.Instance.ResetNotifiedReminders();
+                    ReminderService.Instance.ScheduleReminderNotificationsForTask(_selectedTask.Id);
                 }
-                else
-                {
-                    ReminderText.Text = "提醒我";
-                    ClearReminderButton.Visibility = Visibility.Collapsed;
-                }
-                
-                ReminderSettingsPanel.Visibility = Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ConfirmReminderSettings error: {ex.Message}");
             }
         }
         
@@ -814,9 +1161,10 @@ namespace Todo
             {
                 _dbService.DeleteRemindersForTask(_selectedTask.Id);
                 _selectedTask.Reminders.Clear();
-                ReminderText.Text = "提醒我";
-                ClearReminderButton.Visibility = Visibility.Collapsed;
+                RefreshSelectedTaskReminderControls();
                 RecurringReminderButton.Visibility = Visibility.Collapsed;
+                ReminderService.Instance.ResetNotifiedReminders();
+                ReminderService.Instance.RemoveScheduledReminderNotifications(_selectedTask.Id);
             }
         }
 

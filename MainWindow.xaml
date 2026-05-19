@@ -185,14 +185,26 @@
                                                     </MenuFlyout>
                                                 </Border.ContextFlyout>
                                                 <Grid Margin="15,0">
-                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
-                                                        <TextBlock Text="{Binding Title}" Foreground="White" Margin="5,0,0,0"/>
-                                                    </CheckBox>
-                                                    <TextBlock Text="{Binding DueDateDisplay}" 
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="32"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <CheckBox Grid.Column="0"
+                                                              IsChecked="{Binding IsChecked, Mode=TwoWay}" 
+                                                              Click="TaskCheckBox_Click"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding Title}" 
+                                                               Foreground="White" 
+                                                               Margin="10,0,0,0"
+                                                               VerticalAlignment="Center"/>
+                                                    <StackPanel Grid.Column="2"
                                                                HorizontalAlignment="Right" 
-                                                               VerticalAlignment="Center" 
-                                                               Foreground="#666" 
-                                                               FontSize="12"/>
+                                                               VerticalAlignment="Center"
+                                                               Margin="10,0,0,0">
+                                                        <TextBlock Foreground="#555" FontSize="10" HorizontalAlignment="Right" Text="{Binding CreatedAtDisplay}"/>
+                                                        <TextBlock Foreground="#666" FontSize="10" HorizontalAlignment="Right" Text="{Binding DueDateShortDisplay}"/>
+                                                    </StackPanel>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
@@ -233,14 +245,27 @@
                                                     </MenuFlyout>
                                                 </Border.ContextFlyout>
                                                 <Grid Margin="15,0">
-                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
-                                                        <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888"/>
-                                                    </CheckBox>
-                                                    <TextBlock Text="{Binding DueDateDisplay}" 
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="32"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <CheckBox Grid.Column="0"
+                                                              IsChecked="{Binding IsChecked, Mode=TwoWay}" 
+                                                              Click="TaskCheckBox_Click"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding Title}" 
+                                                               TextDecorations="Strikethrough"
+                                                               Foreground="#666" 
+                                                               Margin="10,0,0,0"
+                                                               VerticalAlignment="Center"/>
+                                                    <StackPanel Grid.Column="2"
                                                                HorizontalAlignment="Right" 
-                                                               VerticalAlignment="Center" 
-                                                               Foreground="#555" 
-                                                               FontSize="12"/>
+                                                               VerticalAlignment="Center"
+                                                               Margin="10,0,0,0">
+                                                        <TextBlock Foreground="#444" FontSize="10" HorizontalAlignment="Right" Text="{Binding CreatedAtDisplay}"/>
+                                                        <TextBlock Foreground="#555" FontSize="10" HorizontalAlignment="Right" Text="{Binding DueDateShortDisplay}"/>
+                                                    </StackPanel>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
@@ -321,8 +346,8 @@
                         </Grid.RowDefinitions>
 
                         <!-- 抽屉标题 -->
-                        <Grid Grid.Row="0" Height="48" Padding="16,0" BorderBrush="#2a2a2a" BorderThickness="0,0,0,1">
-                            <TextBlock Text="任务详情" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center"/>
+                        <Grid Grid.Row="0" Height="32" Padding="16,0" BorderBrush="#2a2a2a" BorderThickness="0,0,0,1">
+                            
                             <Button Click="CloseDrawer_Click" 
                                     HorizontalAlignment="Right"
                                     Background="Transparent"
@@ -333,21 +358,30 @@
                         </Grid>
 
                         <!-- 抽屉内容 -->
-                        <ScrollViewer Grid.Row="1" Padding="16">
-                            <StackPanel Spacing="16">
+                        <ScrollViewer Grid.Row="1" Padding="16" x:Name="DrawerScrollViewer">
+                            <StackPanel Spacing="0">
                                 <!-- 任务标题（无背景） -->
-                                <CheckBox x:Name="DetailCheckBox" 
-                                          FontSize="16" 
-                                          FontWeight="SemiBold"
-                                          Foreground="White"
-                                          Click="DetailCheckBox_Click">
-                                    <TextBox x:Name="DetailTitle" 
+                                <Grid Background="#222" CornerRadius="8,8,0,0" Padding="8,8,8,0">
+                                    <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0"
+                                                  x:Name="DetailCheckBox" 
+                                                  FontSize="16" 
+                                                  FontWeight="SemiBold"
+                                                  Foreground="White"
+                                                  Click="DetailCheckBox_Click"/>
+                                    <TextBox Grid.Column="1"
+                                             x:Name="DetailTitle" 
                                              Background="Transparent" 
                                              BorderThickness="0"
                                              FontSize="16"
                                              FontWeight="SemiBold"
                                              Foreground="White"
                                              Padding="0"
+                                             Margin="8,0,0,0"
+                                             VerticalAlignment="Center"
                                              TextChanged="DetailTitle_TextChanged">
                                         <TextBox.Resources>
                                             <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
@@ -356,21 +390,107 @@
                                             <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent"/>
                                             <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent"/>
                                             <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
+                                            <x:Double x:Key="TextControlThemeMinHeight">0</x:Double>
                                         </TextBox.Resources>
+                                        <TextBox.Style>
+                                            <Style TargetType="TextBox">
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="TextBox">
+                                                            <Grid>
+                                                                <ScrollViewer x:Name="ContentElement"
+                                                                              VerticalScrollMode="Auto"
+                                                                              VerticalScrollBarVisibility="Hidden"
+                                                                              HorizontalScrollMode="Disabled"
+                                                                              HorizontalScrollBarVisibility="Hidden"
+                                                                              Padding="{TemplateBinding Padding}"
+                                                                              Foreground="{TemplateBinding Foreground}"
+                                                                              AutomationProperties.AccessibilityView="Raw"/>
+                                                            </Grid>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </TextBox.Style>
                                     </TextBox>
-                                </CheckBox>
+                                </Grid>
 
                                 <!-- 子任务区（背景框） -->
-                                <Border Background="#222" CornerRadius="8" Padding="12">
-                                    <StackPanel Spacing="8">
+                                <Border Background="#222" CornerRadius="0,0,8,8" Padding="8" Margin="0,0,0,12">
+                                    <StackPanel Spacing="0">
+                                        <!-- 子任务列表 -->
+                                        <ItemsControl x:Name="SubTasksList">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,0,0,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="32"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <CheckBox Grid.Column="0"
+                                                                  IsChecked="{Binding IsChecked, Mode=TwoWay}" 
+                                                                  Click="SubTaskCheckBox_Click"
+                                                                  RightTapped="SubTask_RightTapped"/>
+                                                        <TextBox Grid.Column="1"
+                                                                 Text="{Binding Title, Mode=TwoWay}" 
+                                                                 Background="Transparent" 
+                                                                 BorderThickness="0"
+                                                                 FontSize="13"
+                                                                 Foreground="#ccc"
+                                                                 Padding="0,0,0,0"
+                                                                 Margin="8,0,0,0"
+                                                                 VerticalAlignment="Center"
+                                                                 TextChanged="SubTaskTitle_TextChanged"
+                                                                 LostFocus="SubTaskTitle_LostFocus">
+                                                            <TextBox.Resources>
+                                                                <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
+                                                                <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
+                                                                <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
+                                                                <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent"/>
+                                                                <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent"/>
+                                                                <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
+                                                                <x:Double x:Key="TextControlThemeMinHeight">0</x:Double>
+                                                            </TextBox.Resources>
+                                                            <TextBox.Style>
+                                                                <Style TargetType="TextBox">
+                                                                    <Setter Property="Template">
+                                                                        <Setter.Value>
+                                                                            <ControlTemplate TargetType="TextBox">
+                                                                                <Grid>
+                                                                                    <ScrollViewer x:Name="ContentElement"
+                                                                                                  VerticalScrollMode="Auto"
+                                                                                                  VerticalScrollBarVisibility="Hidden"
+                                                                                                  HorizontalScrollMode="Disabled"
+                                                                                                  HorizontalScrollBarVisibility="Hidden"
+                                                                                                  Padding="{TemplateBinding Padding}"
+                                                                                                  Foreground="{TemplateBinding Foreground}"
+                                                                                                  AutomationProperties.AccessibilityView="Raw"/>
+                                                                                </Grid>
+                                                                            </ControlTemplate>
+                                                                        </Setter.Value>
+                                                                    </Setter>
+                                                                </Style>
+                                                            </TextBox.Style>
+                                                        </TextBox>
+                                                        <Button Grid.Column="2"
+                                                                Click="DeleteSubTask_Click"
+                                                                Background="Transparent"
+                                                                BorderThickness="0"
+                                                                Padding="4">
+                                                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                                        </Button>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        
                                         <!-- 添加子任务按钮/输入框 -->
-                                        <Grid x:Name="AddSubTaskContainer">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
                                             <Button x:Name="AddSubTaskButton" 
                                                     Click="ShowAddSubTaskInput_Click"
                                                     Background="Transparent" 
                                                     BorderThickness="0" 
-                                                    HorizontalAlignment="Stretch"
-                                                    HorizontalContentAlignment="Left"
                                                     Padding="0,4">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                                     <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
@@ -384,7 +504,9 @@
                                                      Foreground="#0078d4"
                                                      Visibility="Collapsed"
                                                      KeyDown="AddSubTaskInput_KeyDown"
-                                                     LostFocus="AddSubTaskInput_LostFocus">
+                                                     LostFocus="AddSubTaskInput_LostFocus"
+                                                     MinWidth="150"
+                                                     VerticalAlignment="Center">
                                                 <TextBox.Resources>
                                                     <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
                                                     <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
@@ -394,38 +516,12 @@
                                                     <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
                                                 </TextBox.Resources>
                                             </TextBox>
-                                        </Grid>
-                                        
-                                        <!-- 子任务列表 -->
-                                        <ItemsControl x:Name="SubTasksList">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Grid Margin="0,4,0,0">
-                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" 
-                                                                  Click="SubTaskCheckBox_Click"
-                                                                  RightTapped="SubTask_RightTapped">
-                                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                                <TextBlock Text="{Binding Title}" Foreground="#ccc" FontSize="13"/>
-                                                                <TextBlock Text="{Binding CreatedAtDisplay}" Foreground="#666" FontSize="11"/>
-                                                            </StackPanel>
-                                                        </CheckBox>
-                                                        <Button Click="DeleteSubTask_Click"
-                                                                HorizontalAlignment="Right"
-                                                                Background="Transparent"
-                                                                BorderThickness="0"
-                                                                Padding="4"
-                                                                Visibility="Collapsed">
-                                                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
-                                                        </Button>
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
 
                                 <!-- 备注区（背景框） -->
-                                <Border Background="#222" CornerRadius="8" Padding="12">
+                                <Border Background="#222" CornerRadius="8" Padding="12" Margin="0,0,0,12">
                                     <TextBox x:Name="DetailDescription" 
                                              PlaceholderText="添加备注..." 
                                              Background="Transparent" 
@@ -527,12 +623,18 @@
                                                 <TimePicker x:Name="ReminderTimePicker" HorizontalAlignment="Stretch"/>
                                                 
                                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0" >
+                                                    <TextBlock Text="重复提醒" FontSize="13" Foreground="#888" VerticalAlignment="Center" />
                                                     <ToggleSwitch x:Name="EnableSameDayReminderToggle"
-                                                                  Toggled="EnableSameDayReminderToggle_Toggled"/>
-                                                    <TextBlock Text="重复提醒频率" FontSize="13" Foreground="#888" VerticalAlignment="Center" />
+                                                                  Toggled="EnableSameDayReminderToggle_Toggled"
+                                                                  OnContent=""
+                                                                  OffContent=""
+                                                                  MinWidth="0"
+                                                                  Width="50"
+                                                                  Margin="8,0"/>
+                                                    <TextBlock Text="|" FontSize="13" Foreground="#888" VerticalAlignment="Center" />
+                                                    <TextBlock Text="提醒频率" FontSize="13" Foreground="#888" VerticalAlignment="Center" Margin="8,0,8,0" />
                                                     <ComboBox x:Name="SameDayIntervalComboBox"
                                                               Width="120"
-                                                              Margin="12,0,0,0"
                                                               IsEnabled="False"
                                                               SelectionChanged="SameDayIntervalComboBox_SelectionChanged">
                                                         <ComboBoxItem Content="10分钟" Tag="10"/>

@@ -1,0 +1,37 @@
+name: todo-dev
+description: |
+  Todo 应用开发规范 skill。用于约束 WinUI3 Todo 应用的开发流程，确保代码质量和设计一致性。
+  
+  此 skill 会在每次开发任务中自动应用以下规范：
+  - WinUI3 设计规范
+  - 代码结构规范
+  - 数据模型规范
+  - UI/UX 规范
+triggers:
+  - task_start
+  - code_edit
+  - file_create
+rules:
+  design:
+    - 使用 WinUI3 原生主题资源（ThemeResource）
+    - 支持 Fluent Design System 设计规范
+    - 支持浅色/深色主题自动切换
+    - 使用 MicaBackdrop 作为窗口背景
+  code:
+    - 遵循 C# 代码规范和命名约定
+    - 使用 .NET 8 特性
+    - MVVM 模式分离视图和逻辑
+    - 使用依赖注入管理服务
+  structure:
+    - Models/: 数据模型类
+    - Services/: 业务服务类
+    - Pages/: 页面 XAML 和代码后台
+    - Controls/: 自定义控件
+  testing:
+    - 每个新功能需要验证 UI 显示正确
+    - 确保主题切换时界面正常
+    - 验证响应式布局
+context_files:
+  - .trae/specs/todo-main-ui/spec.md
+  - .trae/specs/todo-main-ui/checklist.md
+  - .trae/documents/winui3-theme-resources-reference.md

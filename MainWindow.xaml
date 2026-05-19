@@ -310,7 +310,7 @@
                     <!-- 右侧抽屉 - 任务详情 -->
                     <Grid x:Name="DetailDrawer" 
                           Grid.Column="1" 
-                          Width="320"
+                          Width="380"
                           Background="#1c1c1c" 
                           BorderBrush="#2a2a2a" 
                           BorderThickness="1,0,0,0"
@@ -470,17 +470,16 @@
                                                 <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
                                             </Button>
                                         </Grid>
-                                        <CalendarDatePicker x:Name="DetailDatePicker" 
+                                        <CalendarView x:Name="DetailCalendarView" 
                                                             HorizontalAlignment="Stretch"
-                                                            Background="Transparent"
-                                                            BorderThickness="0"
-                                                            Visibility="Collapsed"
-                                                            DateChanged="DetailDatePicker_DateChanged"/>
+                                                            Language="zh-CN"
+                                                            SelectedDatesChanged="DetailCalendarView_SelectedDatesChanged"
+                                                            Visibility="Collapsed"/>
                                         
                                         <!-- 提醒我 -->
                                         <Grid Height="48" Padding="12,0" BorderBrush="#2d2d2d" BorderThickness="0,1,0,0">
                                             <Button x:Name="ReminderButton" 
-                                                    Click="ShowReminderMenu_Click"
+                                                    Click="ShowReminderDialog_Click"
                                                     Background="Transparent" 
                                                     BorderThickness="0"
                                                     HorizontalAlignment="Stretch"
@@ -509,6 +508,59 @@
                                                 </Button>
                                             </StackPanel>
                                         </Grid>
+                                        
+                                        <!-- 提醒设置弹窗 -->
+                                        <Border x:Name="ReminderSettingsPanel" 
+                                                Background="#252525" 
+                                                CornerRadius="8" 
+                                                Padding="12"
+                                                Visibility="Collapsed"
+                                                Margin="0,8,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="选择提醒日期" FontSize="13" Foreground="#888" Margin="0,0,0,8"/>
+                                                <CalendarView x:Name="ReminderCalendarView"
+                                                              HorizontalAlignment="Stretch"
+                                                              Language="zh-CN"
+                                                              SelectionMode="Multiple"/>
+                                                
+                                                <TextBlock Text="提醒时间" FontSize="13" Foreground="#888" Margin="0,12,0,8" />
+                                                <TimePicker x:Name="ReminderTimePicker" HorizontalAlignment="Stretch"/>
+                                                
+                                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0" >
+                                                    <ToggleSwitch x:Name="EnableSameDayReminderToggle"
+                                                                  Toggled="EnableSameDayReminderToggle_Toggled"/>
+                                                    <TextBlock Text="重复提醒频率" FontSize="13" Foreground="#888" VerticalAlignment="Center" />
+                                                    <ComboBox x:Name="SameDayIntervalComboBox"
+                                                              Width="120"
+                                                              Margin="12,0,0,0"
+                                                              IsEnabled="False"
+                                                              SelectionChanged="SameDayIntervalComboBox_SelectionChanged">
+                                                        <ComboBoxItem Content="10分钟" Tag="10"/>
+                                                        <ComboBoxItem Content="20分钟" Tag="20"/>
+                                                        <ComboBoxItem Content="30分钟" Tag="30"/>
+                                                        <ComboBoxItem Content="1小时" Tag="60"/>
+                                                        <ComboBoxItem Content="2小时" Tag="120"/>
+                                                        <ComboBoxItem Content="3小时" Tag="180"/>
+                                                        <ComboBoxItem Content="5小时" Tag="300"/>
+                                                        <ComboBoxItem Content="6小时" Tag="360"/>
+                                                    </ComboBox>
+                                                </StackPanel>
+                                                
+                                                <StackPanel Orientation="Horizontal" 
+                                                            HorizontalAlignment="Right" 
+                                                            Margin="0,16,0,0">
+                                                    <Button Content="取消" 
+                                                            Margin="0,0,8,0" 
+                                                            Click="CancelReminderSettings_Click"
+                                                            Background="#333"
+                                                            BorderThickness="0"/>
+                                                    <Button Content="确认" 
+                                                            Background="#0078d4"
+                                                            Foreground="White"
+                                                            Click="ConfirmReminderSettings_Click"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
                                         
                                         <!-- 重复 -->
                                         <Grid Height="48" Padding="12,0" BorderBrush="#2d2d2d" BorderThickness="0,1,0,0">
@@ -549,13 +601,12 @@
             <Grid Padding="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- 紧凑模式标题栏 -->
-                <Grid Grid.Row="0" Height="48" PointerPressed="CompactTitle_PointerPressed">
+                <Grid Grid.Row="0" Height="38" PointerPressed="CompactTitle_PointerPressed">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -563,14 +614,13 @@
                     <TextBlock Text="T O  D O" 
                                Grid.Column="0"
                                FontSize="18" 
-                               FontWeight="Bold"
-                               FontStyle="Italic"
                                Foreground="White" 
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"/>
                     <Button Grid.Column="1" 
                             Click="ToggleDesktopMode_Click" 
                             Background="Transparent" 
+                            Margin="0,0,12,0"
                             BorderThickness="0" 
                             Padding="4"
                             ToolTipService.ToolTip="恢复正常窗口">
@@ -578,27 +628,8 @@
                     </Button>
                 </Grid>
 
-                <!-- 展开按钮（收起状态显示） -->
-                <Button x:Name="ExpandButton" 
-                        Grid.Row="1"
-                        Click="ExpandCompactWindow"
-                        Visibility="Collapsed"
-                        HorizontalAlignment="Stretch"
-                        Background="#262626"
-                        BorderThickness="1"
-                        BorderBrush="#333"
-                        CornerRadius="6"
-                        Padding="0,8"
-                        Margin="0,0,0,8"
-                        ToolTipService.ToolTip="展开窗口">
-                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                        <FontIcon x:Name="ExpandIcon" Glyph="&#xE96D;" FontSize="12" Foreground="#888"/>
-                        <TextBlock Text="展开" FontSize="12" Foreground="#888"/>
-                    </StackPanel>
-                </Button>
-
                 <!-- 紧凑模式任务列表 -->
-                <ScrollViewer x:Name="CompactScrollViewer" Grid.Row="2">
+                <ScrollViewer x:Name="CompactScrollViewer" Grid.Row="1">
                     <StackPanel>
                         <ItemsControl x:Name="CompactTasksList">
                             <ItemsControl.ItemTemplate>
@@ -696,21 +727,20 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <!-- 底部收起按钮 -->
-                <Button x:Name="CompactMinimizeButton" 
-                        Grid.Row="3" 
-                        Click="CompactMinimize_Click"
+                <!-- 展开/收起按钮 -->
+                <Button x:Name="CompactToggleButton" 
+                        Grid.Row="2" 
+                        Click="CompactToggle_Click"
                         Visibility="Visible"
                         HorizontalAlignment="Stretch"
                         Background="#262626"
                         BorderThickness="1"
                         BorderBrush="#333"
-                        CornerRadius="6"
+                        CornerRadius="0"
                         Padding="0,8"
-                        Margin="0,10,0,0">
+                        Margin="0,0,0,0">
                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                        <FontIcon x:Name="CompactMinimizeIcon" Glyph="&#xE96E;" FontSize="12" Foreground="#888"/>
-                        <TextBlock x:Name="CompactMinimizeText" Text="收起" FontSize="12" Foreground="#888"/>
+                        <FontIcon x:Name="CompactToggleIcon" Glyph="&#xE96E;" FontSize="12" Foreground="#888"/>
                     </StackPanel>
                 </Button>
             </Grid>

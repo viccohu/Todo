@@ -1,0 +1,174 @@
+一、最严重的问题：FindWorkerW() 的实现方式是错的
+
+你在 中通过 GetWindowText() 判断窗口标题是否等于 "WorkerW"：
+
+if (title == "WorkerW")
+问题
+
+WorkerW 是 窗口类名（Class Name），不是窗口标题（Window Text）。
+
+绝大多数 WorkerW 的标题都是空字符串，因此：
+
+GetWindowTextLength() 返回 0
+代码直接跳过
+_workerW 找不到
+SetParent() 根本没有执行
+二、正确做法：通过 FindWindowEx(..., "SHELLDLL_DefView", ...) 查找
+
+标准方法是：
+
+向 Progman 发送 0x052C
+枚举顶层窗口
+找到包含 SHELLDLL_DefView 的窗口
+获取它后面的那个 WorkerW
+
+这也是 Rainmeter 和 Wallpaper Engine 常用的方式。
+
+三、第二个 Bug：SetWindowPos 参数冲突
+
+在 中：
+
+SetWindowPos(...,
+    _pinnedX, _pinnedY, _pinnedWidth, _pinnedHeight,
+    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOZORDER | SWP_SHOWWINDOW);
+
+你传了新的坐标，但同时设置了：
+
+SWP_NOMOVE
+
+这意味着：
+
+Windows 会忽略 _pinnedX 和 _pinnedY
+
+所以窗口位置不会改变。
+
+四、第三个 Bug：SetWindowLong 使用 int
+
+你的样式代码使用：
+
+SetWindowLong(...)
+
+在 64 位系统上，虽然 STYLE 值本身仍是 32 位，但更稳妥的做法是统一使用：
+
+SetWindowLongPtr(...)
+
+这样避免未来扩展时出现兼容问题。
+
+五、第四个 Bug：状态变量是静态的
+
+中大量使用 static 字段：
+
+_workerW
+_isAttachedToDesktop
+_pinnedWidth
+_pinnedHeight
+
+这意味着：
+
+所有窗口共享同一份状态。
+
+如果以后打开多个窗口，状态会互相覆盖。
+
+六、最关键修复：正确的 FindWorkerW()
+
+请用下面的方法完全替换你当前的 FindWorkerW()：
+
+private static IntPtr FindWorkerW()
+{
+    IntPtr progman = FindWindow("Progman", null);
+    if (progman == IntPtr.Zero)
+        return IntPtr.Zero;
+
+    SendMessage(progman, 0x052C, IntPtr.Zero, IntPtr.Zero);
+
+    IntPtr workerW = IntPtr.Zero;
+
+    EnumWindows((topHandle, lParam) =>
+    {
+        IntPtr shellView = FindWindowEx(
+            topHandle,
+            IntPtr.Zero,
+            "SHELLDLL_DefView",
+            null);
+
+        if (shellView != IntPtr.Zero)
+        {
+            workerW = FindWindowEx(
+                IntPtr.Zero,
+                topHandle,
+                "WorkerW",
+                null);
+
+            return false;
+        }
+
+        return true;
+    }, IntPtr.Zero);
+
+    return workerW;
+}
+
+并添加：
+
+[DllImport("user32.dll", CharSet = CharSet.Unicode)]
+private static extern IntPtr FindWindowEx(
+    IntPtr hwndParent,
+    IntPtr hwndChildAfter,
+    string lpszClass,
+    string lpszWindow);
+七、修复 SetWindowPos
+
+把：
+
+SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOZORDER | SWP_SHOWWINDOW
+
+改为：
+
+SWP_FRAMECHANGED | SWP_NOZORDER | SWP_SHOWWINDOW
+
+去掉 SWP_NOMOVE。
+
+八、你的截图为何表现异常
+
+从截图看：
+
+窗口仍然有完整标题栏
+出现在普通应用层
+没有真正嵌入桌面
+
+这正说明：
+
+FindWorkerW() 没找到目标窗口，SetParent() 没有成功执行。
+
+九、稳定性建议
+
+建议在窗口首次激活后调用，而不是构造函数中立即执行：
+
+bool attached = false;
+
+this.Activated += (_, _) =>
+{
+    if (!attached)
+    {
+        attached = true;
+        this.SetPinnedStyle();
+        this.AttachToDesktop();
+    }
+};
+十、最终结论
+
+你的代码“窗口完全不对”的根本原因是：
+
+把 WorkerW 当作窗口标题查找，而它实际上是窗口类名。
+
+这会导致：
+
+找不到 WorkerW
+SetParent() 不执行
+窗口仍然是普通顶级窗口
+所有桌面嵌入效果都失效
+十一、修复优先级
+重写 FindWorkerW()（最重要）
+删除 SWP_NOMOVE
+统一使用 SetWindowLongPtr
+视需要将静态状态改为实例状态

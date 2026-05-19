@@ -71,6 +71,8 @@ namespace Todo.Services
                     IsRecurring INTEGER NOT NULL DEFAULT 0,
                     RecurringInterval INTEGER NOT NULL DEFAULT 0,
                     CustomDays TEXT,
+                    SameDayIntervalMinutes INTEGER NOT NULL DEFAULT 0,
+                    EnableMultiDayReminders INTEGER NOT NULL DEFAULT 0,
                     FOREIGN KEY (TaskId) REFERENCES Tasks(Id)
                 );
 
@@ -79,10 +81,66 @@ namespace Todo.Services
                     TaskId INTEGER NOT NULL,
                     RecurrenceType INTEGER NOT NULL,
                     BaseDate TEXT NOT NULL,
+                    NextDueDate TEXT,
                     FOREIGN KEY (TaskId) REFERENCES Tasks(Id)
                 );
             ";
             command.ExecuteNonQuery();
+            
+            MigrateDatabase(connection);
+        }
+        
+        private void MigrateDatabase(SqliteConnection connection)
+        {
+            var pragmaCommand = connection.CreateCommand();
+            pragmaCommand.CommandText = "PRAGMA table_info(Reminders)";
+            var columns = new List<string>();
+            using (var reader = pragmaCommand.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    columns.Add(reader.GetString(1));
+                }
+            }
+            
+            if (!columns.Contains("CustomDays"))
+            {
+                var alterCommand1 = connection.CreateCommand();
+                alterCommand1.CommandText = "ALTER TABLE Reminders ADD COLUMN CustomDays TEXT";
+                alterCommand1.ExecuteNonQuery();
+            }
+            
+            if (!columns.Contains("SameDayIntervalMinutes"))
+            {
+                var alterCommand2 = connection.CreateCommand();
+                alterCommand2.CommandText = "ALTER TABLE Reminders ADD COLUMN SameDayIntervalMinutes INTEGER NOT NULL DEFAULT 0";
+                alterCommand2.ExecuteNonQuery();
+            }
+            
+            if (!columns.Contains("EnableMultiDayReminders"))
+            {
+                var alterCommand3 = connection.CreateCommand();
+                alterCommand3.CommandText = "ALTER TABLE Reminders ADD COLUMN EnableMultiDayReminders INTEGER NOT NULL DEFAULT 0";
+                alterCommand3.ExecuteNonQuery();
+            }
+            
+            var recurrencePragma = connection.CreateCommand();
+            recurrencePragma.CommandText = "PRAGMA table_info(Recurrences)";
+            var recurrenceColumns = new List<string>();
+            using (var reader = recurrencePragma.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    recurrenceColumns.Add(reader.GetString(1));
+                }
+            }
+            
+            if (!recurrenceColumns.Contains("NextDueDate"))
+            {
+                var alterRecurrence = connection.CreateCommand();
+                alterRecurrence.CommandText = "ALTER TABLE Recurrences ADD COLUMN NextDueDate TEXT";
+                alterRecurrence.ExecuteNonQuery();
+            }
         }
 
         public List<TaskGroup> GetGroups()
@@ -347,6 +405,38 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$id", id);
             command.ExecuteNonQuery();
         }
+        
+        public void DeleteRemindersForTask(int taskId)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM Reminders WHERE TaskId = $taskId";
+            command.Parameters.AddWithValue("$taskId", taskId);
+            command.ExecuteNonQuery();
+        }
+        
+        public void AddReminderWithDetails(Reminder reminder)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = @"INSERT INTO Reminders 
+                                  (TaskId, ReminderType, ReminderDateTime, IsRecurring, RecurringInterval, CustomDays, SameDayIntervalMinutes, EnableMultiDayReminders) 
+                                  VALUES ($taskId, $type, $dateTime, $isRecurring, $interval, $customDays, $intervalMinutes, $enableMultiDay); 
+                                  SELECT last_insert_rowid();";
+            command.Parameters.AddWithValue("$taskId", reminder.TaskId);
+            command.Parameters.AddWithValue("$type", (int)reminder.ReminderType);
+            command.Parameters.AddWithValue("$dateTime", reminder.ReminderDateTime?.ToString("o") ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$isRecurring", reminder.IsRecurring ? 1 : 0);
+            command.Parameters.AddWithValue("$interval", (int)reminder.RecurringInterval);
+            command.Parameters.AddWithValue("$customDays", reminder.CustomDays ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$intervalMinutes", reminder.SameDayIntervalMinutes);
+            command.Parameters.AddWithValue("$enableMultiDay", reminder.EnableMultiDayReminders ? 1 : 0);
+            
+            var id = Convert.ToInt32(command.ExecuteScalar());
+            reminder.Id = id;
+        }
 
         public Recurrence AddRecurrence(int taskId, RecurrenceType type, DateTime baseDate)
         {
@@ -354,13 +444,22 @@ namespace Todo.Services
             connection.Open();
 
             var command = connection.CreateCommand();
-            command.CommandText = "INSERT INTO Recurrences (TaskId, RecurrenceType, BaseDate) VALUES ($taskId, $type, $baseDate); SELECT last_insert_rowid();";
+            command.CommandText = "INSERT INTO Recurrences (TaskId, RecurrenceType, BaseDate, NextDueDate) VALUES ($taskId, $type, $baseDate, $nextDueDate); SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$taskId", taskId);
             command.Parameters.AddWithValue("$type", (int)type);
             command.Parameters.AddWithValue("$baseDate", baseDate.ToString("o"));
+            command.Parameters.AddWithValue("$nextDueDate", CalculateNextRecurrenceDate(type, baseDate).ToString("o"));
             
             var id = Convert.ToInt32(command.ExecuteScalar());
-            return new Recurrence { Id = id, TaskId = taskId, RecurrenceType = type, BaseDate = baseDate };
+            var recurrence = new Recurrence 
+            { 
+                Id = id, 
+                TaskId = taskId, 
+                RecurrenceType = type, 
+                BaseDate = baseDate,
+                NextDueDate = CalculateNextRecurrenceDate(type, baseDate)
+            };
+            return recurrence;
         }
 
         public void DeleteRecurrence(int taskId)
@@ -383,6 +482,178 @@ namespace Todo.Services
                 RecurrenceType.Yearly => baseDate.AddYears(1),
                 _ => baseDate
             };
+        }
+        
+        public void UpdateTask(TaskItem task)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = @"UPDATE Tasks 
+                                   SET Title = $title, 
+                                       Description = $description,
+                                       DueDate = $dueDate
+                                   WHERE Id = $id";
+            command.Parameters.AddWithValue("$title", task.Title);
+            command.Parameters.AddWithValue("$description", task.Description ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$dueDate", task.DueDate?.ToString("o") ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$id", task.Id);
+            command.ExecuteNonQuery();
+        }
+        
+        public TaskItem? GetTaskById(int id)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE Id = $id";
+            command.Parameters.AddWithValue("$id", id);
+            
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                return new TaskItem
+                {
+                    Id = reader.GetInt32(0),
+                    Title = reader.GetString(1),
+                    Description = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    DueDate = reader.IsDBNull(3) ? null : DateTime.Parse(reader.GetString(3)),
+                    IsChecked = reader.GetInt32(4) == 1,
+                    ParentTaskId = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                    ListId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    CreatedAt = DateTime.Parse(reader.GetString(7)),
+                    CompletedAt = reader.IsDBNull(8) ? null : DateTime.Parse(reader.GetString(8))
+                };
+            }
+            return null;
+        }
+        
+        public List<Reminder> GetRemindersForTask(int taskId)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var reminders = new List<Reminder>();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, TaskId, ReminderType, ReminderDateTime, IsRecurring, RecurringInterval, CustomDays, SameDayIntervalMinutes, EnableMultiDayReminders FROM Reminders WHERE TaskId = $taskId";
+            command.Parameters.AddWithValue("$taskId", taskId);
+            
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                reminders.Add(new Reminder
+                {
+                    Id = reader.GetInt32(0),
+                    TaskId = reader.GetInt32(1),
+                    ReminderType = (ReminderType)reader.GetInt32(2),
+                    ReminderDateTime = reader.IsDBNull(3) ? null : DateTime.Parse(reader.GetString(3)),
+                    IsRecurring = reader.GetInt32(4) == 1,
+                    RecurringInterval = (RecurringInterval)reader.GetInt32(5),
+                    CustomDays = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    SameDayIntervalMinutes = reader.GetInt32(7),
+                    EnableMultiDayReminders = reader.GetInt32(8) == 1
+                });
+            }
+            return reminders;
+        }
+        
+        public void UpdateReminder(Reminder reminder)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = @"UPDATE Reminders 
+                                   SET ReminderType = $type, 
+                                       ReminderDateTime = $dateTime,
+                                       IsRecurring = $isRecurring,
+                                       RecurringInterval = $interval,
+                                       CustomDays = $customDays,
+                                       SameDayIntervalMinutes = $intervalMinutes,
+                                       EnableMultiDayReminders = $enableMultiDay
+                                   WHERE Id = $id";
+            command.Parameters.AddWithValue("$type", (int)reminder.ReminderType);
+            command.Parameters.AddWithValue("$dateTime", reminder.ReminderDateTime?.ToString("o") ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$isRecurring", reminder.IsRecurring ? 1 : 0);
+            command.Parameters.AddWithValue("$interval", (int)reminder.RecurringInterval);
+            command.Parameters.AddWithValue("$customDays", reminder.CustomDays ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$intervalMinutes", reminder.SameDayIntervalMinutes);
+            command.Parameters.AddWithValue("$enableMultiDay", reminder.EnableMultiDayReminders ? 1 : 0);
+            command.Parameters.AddWithValue("$id", reminder.Id);
+            command.ExecuteNonQuery();
+        }
+        
+        public Recurrence? GetRecurrenceForTask(int taskId)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, TaskId, RecurrenceType, BaseDate, NextDueDate FROM Recurrences WHERE TaskId = $taskId";
+            command.Parameters.AddWithValue("$taskId", taskId);
+            
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                return new Recurrence
+                {
+                    Id = reader.GetInt32(0),
+                    TaskId = reader.GetInt32(1),
+                    RecurrenceType = (RecurrenceType)reader.GetInt32(2),
+                    BaseDate = DateTime.Parse(reader.GetString(3)),
+                    NextDueDate = reader.IsDBNull(4) ? DateTime.Parse(reader.GetString(3)) : DateTime.Parse(reader.GetString(4))
+                };
+            }
+            return null;
+        }
+        
+        public void UpdateRecurrence(Recurrence recurrence)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = @"UPDATE Recurrences 
+                                   SET RecurrenceType = $type, 
+                                       BaseDate = $baseDate,
+                                       NextDueDate = $nextDueDate
+                                   WHERE Id = $id";
+            command.Parameters.AddWithValue("$type", (int)recurrence.RecurrenceType);
+            command.Parameters.AddWithValue("$baseDate", recurrence.BaseDate.ToString("o"));
+            command.Parameters.AddWithValue("$nextDueDate", recurrence.NextDueDate.ToString("o"));
+            command.Parameters.AddWithValue("$id", recurrence.Id);
+            command.ExecuteNonQuery();
+        }
+        
+        public List<Reminder> GetDueReminders(DateTime currentTime)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var reminders = new List<Reminder>();
+            var command = connection.CreateCommand();
+            command.CommandText = @"SELECT r.Id, r.TaskId, r.ReminderType, r.ReminderDateTime, r.IsRecurring, 
+                                   r.RecurringInterval, r.CustomDays, r.SameDayIntervalMinutes, r.EnableMultiDayReminders,
+                                   t.Title 
+                                   FROM Reminders r 
+                                   INNER JOIN Tasks t ON r.TaskId = t.Id 
+                                   WHERE r.ReminderDateTime IS NOT NULL 
+                                   AND datetime(r.ReminderDateTime) <= datetime($currentTime)
+                                   AND t.IsChecked = 0";
+            command.Parameters.AddWithValue("$currentTime", currentTime.ToString("o"));
+            
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                reminders.Add(new Reminder
+                {
+                    Id = reader.GetInt32(0),
+                    TaskId = reader.GetInt32(1),
+                    ReminderType = (ReminderType)reader.GetInt32(2),
+                    ReminderDateTime = reader.IsDBNull(3) ? null : DateTime.Parse(reader.GetString(3)),
+                    IsRecurring = reader.GetInt32(4) == 1,
+                    RecurringInterval = (RecurringInterval)reader.GetInt32(5),
+                    CustomDays = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    SameDayIntervalMinutes = reader.GetInt32(7),
+                    EnableMultiDayReminders = reader.GetInt32(8) == 1
+                });
+            }
+            return reminders;
         }
     }
 }

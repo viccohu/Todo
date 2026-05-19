@@ -570,7 +570,16 @@
                                                             HorizontalAlignment="Stretch"
                                                             Language="zh-CN"
                                                             SelectedDatesChanged="DetailCalendarView_SelectedDatesChanged"
-                                                            Visibility="Collapsed"/>
+                                                            Visibility="Collapsed">
+                                            <CalendarView.Resources>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="#0078D4"/>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedForeground" Color="White"/>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="#FFFFFF"/>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="#168DE2"/>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="#006CBE"/>
+                                                <x:Double x:Key="CalendarViewCalendarItemBorderThemeThickness">2</x:Double>
+                                            </CalendarView.Resources>
+                                        </CalendarView>
                                         
                                         <!-- 提醒我 -->
                                         <Grid Height="48" Padding="12,0" BorderBrush="#2d2d2d" BorderThickness="0,1,0,0">
@@ -617,7 +626,23 @@
                                                 <CalendarView x:Name="ReminderCalendarView"
                                                               HorizontalAlignment="Stretch"
                                                               Language="zh-CN"
-                                                              SelectionMode="Multiple"/>
+                                                              SelectionMode="Multiple"
+                                                              SelectedDatesChanged="ReminderCalendarView_SelectedDatesChanged">
+                                                    <CalendarView.Resources>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="#0078D4"/>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedForeground" Color="White"/>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="#FFFFFF"/>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="#168DE2"/>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="#006CBE"/>
+                                                        <x:Double x:Key="CalendarViewCalendarItemBorderThemeThickness">2</x:Double>
+                                                    </CalendarView.Resources>
+                                                </CalendarView>
+                                                <TextBlock x:Name="ReminderSelectedDatesText"
+                                                           Text="未选择日期"
+                                                           FontSize="12"
+                                                           Foreground="#BDBDBD"
+                                                           TextWrapping="Wrap"
+                                                           Margin="0,8,0,0"/>
                                                 
                                                 <TextBlock Text="提醒时间" FontSize="13" Foreground="#888" Margin="0,12,0,8" />
                                                 <TimePicker x:Name="ReminderTimePicker" HorizontalAlignment="Stretch"/>

@@ -464,6 +464,23 @@ namespace Todo
                 : Visibility.Collapsed;
         }
 
+        private void RefreshReminderSelectedDatesText()
+        {
+            if (ReminderSelectedDatesText == null || ReminderCalendarView == null)
+            {
+                return;
+            }
+
+            var selectedDates = ReminderCalendarView.SelectedDates
+                .Select(date => date.DateTime.Date)
+                .OrderBy(date => date)
+                .ToList();
+
+            ReminderSelectedDatesText.Text = selectedDates.Count == 0
+                ? "未选择日期"
+                : $"已选择：{string.Join("、", selectedDates.Select(date => date.ToString("M月d日")))}";
+        }
+
         private void CloseDrawer()
         {
             DetailDrawer.Visibility = Visibility.Collapsed;
@@ -960,6 +977,7 @@ namespace Todo
                     ReminderCalendarView.MinDate = today;
                     ReminderCalendarView.SetDisplayDate(today);
                     ReminderCalendarView.SelectedDates.Clear();
+                    RefreshReminderSelectedDatesText();
                 }
                 
                 if (_selectedTask != null)
@@ -1018,6 +1036,8 @@ namespace Todo
                         }
                     }
                 }
+
+                RefreshReminderSelectedDatesText();
                 
                 if (ReminderSettingsPanel.Visibility == Visibility.Visible && DrawerScrollViewer != null)
                 {
@@ -1031,6 +1051,11 @@ namespace Todo
             {
                 System.Diagnostics.Debug.WriteLine($"ShowReminderDialog error: {ex.Message}");
             }
+        }
+
+        private void ReminderCalendarView_SelectedDatesChanged(CalendarView sender, CalendarViewSelectedDatesChangedEventArgs args)
+        {
+            RefreshReminderSelectedDatesText();
         }
         
         private void EnableSameDayReminderToggle_Toggled(object sender, RoutedEventArgs e)

@@ -57,6 +57,8 @@ public class SystemTrayService : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool DestroyMenu(IntPtr hMenu);
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string? pszSubIdList);
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
@@ -393,6 +395,9 @@ public class SystemTrayService : IDisposable
 
         var hMenu = CreatePopupMenu();
         if (hMenu == IntPtr.Zero) return;
+
+        // Apply dark theme support to the popup menu (Win10 2004+ / Win11)
+        SetWindowTheme(hMenu, "DarkMode_Explorer", null);
 
         AppendMenu(hMenu, MF_STRING, CMD_SHOW, "显示");
         AppendMenu(hMenu, MF_SEPARATOR, 0, string.Empty);

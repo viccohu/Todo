@@ -19,6 +19,7 @@ using System.Threading;
 using Windows.Storage.Pickers;
 using Windows.Storage;
 using WinRT.Interop;
+using Markdig;
 
 namespace Todo
 {
@@ -54,6 +55,9 @@ namespace Todo
 
         private SystemTrayService? _trayService;
         private bool _isExiting = false;
+
+        private bool _isPreviewMode = true;
+        private bool _webViewReady = false;
 
         public ObservableCollection<TaskItem> Tasks { get; } = new ObservableCollection<TaskItem>();
         public ObservableCollection<TaskItem> CompletedTasks { get; } = new ObservableCollection<TaskItem>();
@@ -613,6 +617,7 @@ namespace Todo
             if (!_isNotepadInitialized)
             {
                 InitializeNotepad();
+                InitializeNotepadPreview();
             }
         }
 
@@ -2097,6 +2102,11 @@ namespace Todo
                 NotepadEditor.Text = tab.Content;
                 System.Diagnostics.Debug.WriteLine($"[Notepad] SelectionChanged: 切换到 TabId={tab.Id}, 内容长度={tab.Content?.Length ?? 0}");
 
+                if (_isPreviewMode)
+                {
+                    RenderMarkdownPreview();
+                }
+
                 _isNotepadTabSwitching = false;
             }
             else
@@ -2155,6 +2165,12 @@ namespace Todo
             {
                 System.Diagnostics.Debug.WriteLine("[Notepad] Ctrl+S: 触发手动保存");
                 SaveCurrentNotepadTab();
+                RenderMarkdownPreview();
+                e.Handled = true;
+            }
+            else if (e.Key == Windows.System.VirtualKey.Escape)
+            {
+                SwitchToPreviewMode();
                 e.Handled = true;
             }
         }
@@ -2260,6 +2276,103 @@ namespace Todo
                 _dbService.UpdateNotepadTabFilePath(_currentNotepadTab.Id, file.Path);
                 _dbService.UpdateNotepadTabTitle(_currentNotepadTab.Id, file.Name);
             }
+        }
+
+        private async void InitializeNotepadPreview()
+        {
+            if (_webViewReady) return;
+            await NotepadPreview.EnsureCoreWebView2Async();
+            _webViewReady = true;
+            RenderMarkdownPreview();
+        }
+
+        private void RenderMarkdownPreview()
+        {
+            if (!_webViewReady) return;
+
+            var markdown = _currentNotepadTab?.Content ?? "";
+            var html = Markdown.ToHtml(string.IsNullOrEmpty(markdown) ? "" : markdown);
+
+            var styledHtml = $@"<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{
+    background: #161616;
+    color: #e0e0e0;
+    font-family: -apple-system, Segoe UI, sans-serif;
+    font-size: 14px;
+    padding: 24px 32px;
+    line-height: 1.7;
+    margin: 0;
+  }}
+  h1, h2, h3, h4 {{ color: #fff; margin-top: 1.2em; margin-bottom: 0.4em; }}
+  h1 {{ font-size: 1.8em; border-bottom: 1px solid #333; padding-bottom: 8px; }}
+  h2 {{ font-size: 1.4em; }}
+  code {{ background: #2a2a2a; padding: 2px 6px; border-radius: 3px; font-family: Consolas, monospace; font-size: 13px; }}
+  pre {{ background: #2a2a2a; padding: 14px; border-radius: 6px; overflow-x: auto; }}
+  pre code {{ background: none; padding: 0; }}
+  blockquote {{ border-left: 3px solid #0078d4; padding-left: 14px; color: #aaa; margin-left: 0; }}
+  a {{ color: #0078d4; }}
+  table {{ border-collapse: collapse; width: 100%; }}
+  th, td {{ border: 1px solid #333; padding: 8px 12px; text-align: left; }}
+  th {{ background: #2a2a2a; }}
+  img {{ max-width: 100%; }}
+  hr {{ border: none; border-top: 1px solid #333; margin: 20px 0; }}
+  ul, ol {{ padding-left: 24px; }}
+  li {{ margin: 4px 0; }}
+  p {{ margin: 0.6em 0; }}
+  strong {{ color: #fff; }}
+  del {{ color: #888; }}
+</style>
+</head>
+<body>
+  {html}
+</body>
+</html>";
+
+            NotepadPreview.NavigateToString(styledHtml);
+        }
+
+        private void NotepadPreviewToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isPreviewMode)
+            {
+                SwitchToEditMode();
+            }
+            else
+            {
+                SwitchToPreviewMode();
+            }
+        }
+
+        private void NotepadPreview_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            if (_isPreviewMode)
+            {
+                SwitchToEditMode();
+            }
+        }
+
+        private void SwitchToEditMode()
+        {
+            _isPreviewMode = false;
+            NotepadPreview.Visibility = Visibility.Collapsed;
+            NotepadEditor.Visibility = Visibility.Visible;
+            NotepadEditor.Focus(FocusState.Programmatic);
+            NotepadPreviewToggleIcon.Glyph = "";
+            NotepadPreviewToggleText.Text = "预览";
+        }
+
+        private void SwitchToPreviewMode()
+        {
+            SaveCurrentNotepadTab();
+            RenderMarkdownPreview();
+            _isPreviewMode = true;
+            NotepadEditor.Visibility = Visibility.Collapsed;
+            NotepadPreview.Visibility = Visibility.Visible;
+            NotepadPreviewToggleIcon.Glyph = "";
+            NotepadPreviewToggleText.Text = "编辑";
         }
     }
 }

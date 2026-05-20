@@ -255,10 +255,22 @@
                                         ToolTipService.ToolTip="自动编号">
                                     <FontIcon Glyph="&#xE8FD;" FontSize="14" Foreground="#ccc"/>
                                 </Button>
+
+                                <Border Grid.Column="9" Width="1" Background="#333" Margin="8,2"/>
+
+                                <Button x:Name="NotepadPreviewToggleButton" Grid.Column="10"
+                                        Click="NotepadPreviewToggle_Click"
+                                        Background="Transparent" BorderThickness="0" Padding="8,4"
+                                        ToolTipService.ToolTip="切换预览/编辑">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <FontIcon x:Name="NotepadPreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="#ccc"/>
+                                        <TextBlock x:Name="NotepadPreviewToggleText" Text="编辑" FontSize="12" Foreground="#ccc" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </Grid>
 
                             <!-- 编辑区 -->
-                            <TextBox x:Name="NotepadEditor" 
+                            <TextBox x:Name="NotepadEditor"
                                      Grid.Row="2"
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
@@ -271,7 +283,8 @@
                                      Background="#161616"
                                      BorderThickness="0"
                                      TextChanged="NotepadEditor_TextChanged"
-                                     KeyDown="NotepadEditor_KeyDown">
+                                     KeyDown="NotepadEditor_KeyDown"
+                                     Visibility="Collapsed">
                                 <TextBox.Resources>
                                     <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#555"/>
                                     <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
@@ -284,6 +297,14 @@
                                     <x:Double x:Key="TextControlThemeMinHeight">0</x:Double>
                                 </TextBox.Resources>
                             </TextBox>
+
+                            <!-- Markdown 预览区 -->
+                            <WebView2 x:Name="NotepadPreview"
+                                      Grid.Row="2"
+                                      VerticalAlignment="Stretch"
+                                      HorizontalAlignment="Stretch"
+                                      Visibility="Visible"
+                                      DoubleTapped="NotepadPreview_DoubleTapped"/>
                         </Grid>
 
                         <!-- 任务列表 ScrollView -->

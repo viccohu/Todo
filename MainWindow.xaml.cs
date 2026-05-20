@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using System.Collections.ObjectModel;
 using System;
 using System.ComponentModel;
@@ -28,6 +29,7 @@ namespace Todo
         private bool _isDrawerOpen = false;
         private DatabaseService _dbService = new DatabaseService();
         private TaskItem? _selectedTask;
+        private readonly Dictionary<TaskItem, (Border border, PropertyChangedEventHandler handler)> _borderSubscriptions = new();
         
         private DispatcherTimer? _saveTitleTimer;
         private DispatcherTimer? _saveDescriptionTimer;
@@ -36,6 +38,7 @@ namespace Todo
         
         // 动画相关字段
         private bool _isAnimating = false;
+        private Storyboard? _drawerStoryboard;
 
         public ObservableCollection<TaskItem> Tasks { get; } = new ObservableCollection<TaskItem>();
         public ObservableCollection<TaskItem> CompletedTasks { get; } = new ObservableCollection<TaskItem>();
@@ -229,6 +232,47 @@ namespace Todo
             }
         }
 
+        private void TaskBorder_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is Border border && border.DataContext is TaskItem task)
+            {
+                if (_borderSubscriptions.ContainsKey(task))
+                {
+                    _borderSubscriptions.Remove(task);
+                }
+
+                PropertyChangedEventHandler handler = (s, args) =>
+                {
+                    if (args.PropertyName == nameof(TaskItem.IsSelected))
+                    {
+                        UpdateBorderBackground(border, task);
+                    }
+                };
+                task.PropertyChanged += handler;
+                _borderSubscriptions[task] = (border, handler);
+                UpdateBorderBackground(border, task);
+            }
+        }
+
+        private void TaskBorder_Unloaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is Border border && border.DataContext is TaskItem task)
+            {
+                if (_borderSubscriptions.TryGetValue(task, out var entry))
+                {
+                    task.PropertyChanged -= entry.handler;
+                    _borderSubscriptions.Remove(task);
+                }
+            }
+        }
+
+        private void UpdateBorderBackground(Border border, TaskItem task)
+        {
+            border.Background = task.IsSelected
+                ? new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0x2a, 0x2a, 0x2a))
+                : new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0x1e, 0x1e, 0x1e));
+        }
+
         private void TaskItem_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             var pointerPoint = e.GetCurrentPoint(sender as UIElement);
@@ -247,7 +291,7 @@ namespace Todo
                 {
                     _selectedTask = task;
                     ShowDrawer(task);
-                    UpdateTaskItemSelection(task, border);
+                    UpdateTaskItemSelection(task);
                 }
             }
         }
@@ -256,8 +300,7 @@ namespace Todo
         {
             if (sender is Border border && border.DataContext is TaskItem task)
             {
-                // 如果任务被选中，不改变背景
-                if (_selectedTask == task)
+                if (task.IsSelected)
                 {
                     return;
                 }
@@ -271,22 +314,12 @@ namespace Todo
         {
             if (sender is Border border && border.DataContext is TaskItem task)
             {
-                if (_selectedTask == task)
-                {
-                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                        Microsoft.UI.ColorHelper.FromArgb(255, 0x2a, 0x2a, 0x2a));
-                }
-                else
-                {
-                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                        Microsoft.UI.ColorHelper.FromArgb(255, 0x1e, 0x1e, 0x1e));
-                }
+                UpdateBorderBackground(border, task);
             }
         }
 
-        private void UpdateTaskItemSelection(TaskItem? selectedTask, Border? selectedBorder)
+        private void UpdateTaskItemSelection(TaskItem? selectedTask)
         {
-            // 更新数据模型的IsSelected属性
             foreach (var item in Tasks)
             {
                 item.IsSelected = (item == selectedTask);
@@ -295,74 +328,8 @@ namespace Todo
             {
                 item.IsSelected = (item == selectedTask);
             }
-            
-            // 遍历未完成任务列表，清除其他高亮
-            UpdateBordersBackground(TasksList, selectedBorder);
-            
-            // 遍历已完成任务列表，清除其他高亮
-            UpdateBordersBackground(CompletedTasksList, selectedBorder);
         }
         
-        private void UpdateBordersBackground(ItemsControl itemsControl, Border? selectedBorder)
-        {
-            if (itemsControl.ItemsPanel == null) return;
-            
-            // 使用 FindVisualChildren 获取所有 Border 元素
-            var allBorders = FindVisualChildren<Border>(itemsControl);
-            foreach (var itemBorder in allBorders)
-            {
-                // 只处理数据模板中的 Border（有 DataContext 的）
-                if (itemBorder.DataContext is TaskItem)
-                {
-                    if (itemBorder == selectedBorder)
-                    {
-                        // 设置选中高亮
-                        itemBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                            Microsoft.UI.ColorHelper.FromArgb(255, 0x2a, 0x2a, 0x2a));
-                    }
-                    else
-                    {
-                        // 清除高亮
-                        itemBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                            Microsoft.UI.ColorHelper.FromArgb(255, 0x1e, 0x1e, 0x1e));
-                    }
-                }
-            }
-        }
-        
-        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
-        {
-            for (int i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
-            {
-                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
-                if (child is T typedChild)
-                {
-                    return typedChild;
-                }
-                var result = FindVisualChild<T>(child);
-                if (result != null)
-                {
-                    return result;
-                }
-            }
-            return null;
-        }
-        
-        private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
-        {
-            var result = new List<T>();
-            for (int i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
-            {
-                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
-                if (child is T typedChild)
-                {
-                    result.Add(typedChild);
-                }
-                result.AddRange(FindVisualChildren<T>(child));
-            }
-            return result;
-        }
-
         private void TaskItem_RightTapped(object sender, RightTappedRoutedEventArgs e)
         {
             // 右键菜单由 ContextFlyout 自动处理，不切换抽屉
@@ -393,11 +360,17 @@ namespace Todo
 
         private void ShowDrawer(TaskItem task)
         {
+            if (_drawerStoryboard != null)
+            {
+                _drawerStoryboard.Stop();
+                DrawerTranslateTransform.X = 0;
+                DetailDrawer.Opacity = 1;
+            }
+
             _selectedTask = task;
             DetailTitle.Text = task.Title;
             DetailDescription.Text = task.Description;
             
-            // 从数据库加载子任务
             var subTasks = _dbService.GetSubTasksForTask(task.Id);
             _selectedTask.SubTasks.Clear();
             foreach (var subTask in subTasks)
@@ -427,8 +400,46 @@ namespace Todo
                 RecurrenceText.Text = "重复";
                 ClearRecurrenceButton.Visibility = Visibility.Collapsed;
             }
-            
+
+            DetailCalendarView.Visibility = Visibility.Collapsed;
+            ReminderSettingsPanel.Visibility = Visibility.Collapsed;
+
+            if (_isDrawerOpen)
+            {
+                DrawerScrollViewer.ChangeView(null, 0, null);
+                return;
+            }
+
             DetailDrawer.Visibility = Visibility.Visible;
+            DrawerTranslateTransform.X = 380;
+            DetailDrawer.Opacity = 0;
+
+            _drawerStoryboard = new Storyboard();
+
+            var slideIn = new DoubleAnimation
+            {
+                From = 380,
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(250)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(slideIn, DrawerTranslateTransform);
+            Storyboard.SetTargetProperty(slideIn, "X");
+            _drawerStoryboard.Children.Add(slideIn);
+
+            var fadeIn = new DoubleAnimation
+            {
+                From = 0,
+                To = 1,
+                Duration = new Duration(TimeSpan.FromMilliseconds(200)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(fadeIn, DetailDrawer);
+            Storyboard.SetTargetProperty(fadeIn, "Opacity");
+            _drawerStoryboard.Children.Add(fadeIn);
+
+            _drawerStoryboard.Begin();
+
             _isDrawerOpen = true;
         }
         
@@ -481,15 +492,60 @@ namespace Todo
                 : $"已选择：{string.Join("、", selectedDates.Select(date => date.ToString("M月d日")))}";
         }
 
-        private void CloseDrawer()
+        private void CloseDrawer(bool animate = true)
         {
-            DetailDrawer.Visibility = Visibility.Collapsed;
-            _isDrawerOpen = false;
-            _selectedTask = null;
-            
-            // 关闭抽屉时清除所有任务项的高亮
-            UpdateBordersBackground(TasksList, null);
-            UpdateBordersBackground(CompletedTasksList, null);
+            if (_selectedTask != null) _selectedTask.IsSelected = false;
+
+            if (_drawerStoryboard != null)
+            {
+                _drawerStoryboard.Stop();
+                DrawerTranslateTransform.X = 0;
+                DetailDrawer.Opacity = 1;
+            }
+
+            if (!animate)
+            {
+                DetailDrawer.Visibility = Visibility.Collapsed;
+                DrawerTranslateTransform.X = 380;
+                DetailDrawer.Opacity = 0;
+                _isDrawerOpen = false;
+                _selectedTask = null;
+                return;
+            }
+
+            _drawerStoryboard = new Storyboard();
+
+            var slideOut = new DoubleAnimation
+            {
+                From = 0,
+                To = 380,
+                Duration = new Duration(TimeSpan.FromMilliseconds(200)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            };
+            Storyboard.SetTarget(slideOut, DrawerTranslateTransform);
+            Storyboard.SetTargetProperty(slideOut, "X");
+            _drawerStoryboard.Children.Add(slideOut);
+
+            var fadeOut = new DoubleAnimation
+            {
+                From = 1,
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(150)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            };
+            Storyboard.SetTarget(fadeOut, DetailDrawer);
+            Storyboard.SetTargetProperty(fadeOut, "Opacity");
+            _drawerStoryboard.Children.Add(fadeOut);
+
+            _drawerStoryboard.Completed += (s, e) =>
+            {
+                DetailDrawer.Visibility = Visibility.Collapsed;
+                DrawerTranslateTransform.X = 380;
+                DetailDrawer.Opacity = 0;
+                _isDrawerOpen = false;
+                _selectedTask = null;
+            };
+            _drawerStoryboard.Begin();
         }
 
         private void CloseDrawer_Click(object sender, RoutedEventArgs e)
@@ -536,6 +592,17 @@ namespace Todo
                     }
                 };
                 _saveDescriptionTimer.Start();
+            }
+        }
+
+        private void ScrollToElement(FrameworkElement element)
+        {
+            if (DrawerScrollViewer != null && element != null)
+            {
+                DrawerScrollViewer.UpdateLayout();
+                var transform = element.TransformToVisual(DrawerScrollViewer);
+                var position = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+                DrawerScrollViewer.ChangeView(null, position.Y - 50, null, false);
             }
         }
 
@@ -592,8 +659,7 @@ namespace Todo
                 CloseDrawer();
             }
 
-            UpdateBordersBackground(TasksList, null);
-            UpdateBordersBackground(CompletedTasksList, null);
+            UpdateTaskItemSelection(null);
         }
 
         private static DateTime CalculateNextRecurringDueDate(RecurrenceType recurrenceType, DateTime currentDueDate)
@@ -672,10 +738,8 @@ namespace Todo
                         CompletedTasks.Add(task);
                     }
                     
-                    // 完成任务时清除所有高亮
                     _selectedTask = null;
-                    UpdateBordersBackground(TasksList, null);
-                    UpdateBordersBackground(CompletedTasksList, null);
+                    UpdateTaskItemSelection(null);
                 }
                 else
                 {
@@ -742,8 +806,84 @@ namespace Todo
         private void ToggleCompleted_Click(object sender, RoutedEventArgs e)
         {
             _showCompleted = !_showCompleted;
-            CompletedTasksList.Visibility = _showCompleted ? Visibility.Visible : Visibility.Collapsed;
+            if (_showCompleted)
+            {
+                AnimateExpand(CompletedTasksList, CompletedListTransform);
+            }
+            else
+            {
+                AnimateSlideCollapse(CompletedTasksList, CompletedListTransform);
+            }
             CompletedArrow.Glyph = _showCompleted ? "\uE70E" : "\uE70D";
+        }
+
+        private void AnimateExpand(FrameworkElement element, TranslateTransform transform)
+        {
+            element.Visibility = Visibility.Visible;
+            element.Opacity = 0;
+            transform.Y = -12;
+
+            var storyboard = new Storyboard();
+
+            var opacityAnim = new DoubleAnimation
+            {
+                From = 0,
+                To = 1,
+                Duration = new Duration(TimeSpan.FromMilliseconds(200)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(opacityAnim, element);
+            Storyboard.SetTargetProperty(opacityAnim, "Opacity");
+            storyboard.Children.Add(opacityAnim);
+
+            var slideAnim = new DoubleAnimation
+            {
+                From = -12,
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(200)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(slideAnim, transform);
+            Storyboard.SetTargetProperty(slideAnim, "Y");
+            storyboard.Children.Add(slideAnim);
+
+            storyboard.Begin();
+        }
+
+        private void AnimateSlideCollapse(FrameworkElement element, TranslateTransform transform)
+        {
+            var storyboard = new Storyboard();
+
+            var opacityAnim = new DoubleAnimation
+            {
+                From = 1,
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(150)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            };
+            Storyboard.SetTarget(opacityAnim, element);
+            Storyboard.SetTargetProperty(opacityAnim, "Opacity");
+            storyboard.Children.Add(opacityAnim);
+
+            var slideAnim = new DoubleAnimation
+            {
+                From = 0,
+                To = -12,
+                Duration = new Duration(TimeSpan.FromMilliseconds(150)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            };
+            Storyboard.SetTarget(slideAnim, transform);
+            Storyboard.SetTargetProperty(slideAnim, "Y");
+            storyboard.Children.Add(slideAnim);
+
+            storyboard.Completed += (s, e) =>
+            {
+                element.Visibility = Visibility.Collapsed;
+                element.Opacity = 0;
+                transform.Y = 0;
+            };
+
+            storyboard.Begin();
         }
 
         private void NewGroup_Click(object sender, RoutedEventArgs e)
@@ -817,8 +957,6 @@ namespace Todo
             {
                 var subTask = _dbService.AddSubTask(_selectedTask.Id, AddSubTaskTextBox.Text.Trim());
                 _selectedTask.SubTasks.Add(subTask);
-                SubTasksList.ItemsSource = null;
-                SubTasksList.ItemsSource = _selectedTask.SubTasks;
                 
                 NotifyTaskItemChanged(_selectedTask);
             }
@@ -895,8 +1033,6 @@ namespace Todo
                 {
                     _dbService.DeleteSubTask(subTask.Id);
                     _selectedTask.SubTasks.Remove(subTask);
-                    SubTasksList.ItemsSource = null;
-                    SubTasksList.ItemsSource = _selectedTask.SubTasks;
                 }
             }
             catch (Exception ex)
@@ -907,29 +1043,28 @@ namespace Todo
 
         private void ShowDueDatePicker_Click(object sender, RoutedEventArgs e)
         {
-            DetailCalendarView.Visibility = DetailCalendarView.Visibility == Visibility.Visible 
-                ? Visibility.Collapsed 
-                : Visibility.Visible;
-            
             if (DetailCalendarView.Visibility == Visibility.Visible)
             {
+                DetailCalendarView.Visibility = Visibility.Collapsed;
+                ScrollToElement(DueDateButton);
+            }
+            else
+            {
+                DetailCalendarView.Visibility = Visibility.Visible;
                 var today = new DateTimeOffset(DateTime.Today);
                 DetailCalendarView.MinDate = today;
-                DetailCalendarView.SetDisplayDate(today);
                 DetailCalendarView.SelectedDates.Clear();
                 
-                if (_selectedTask?.DueDate != null && _selectedTask.DueDate.Value.Date >= DateTime.Today)
+                if (_selectedTask?.DueDate.HasValue == true && _selectedTask.DueDate.Value.Date >= DateTime.Today)
                 {
-                    DetailCalendarView.SelectedDates.Add(_selectedTask.DueDate.Value);
+                    DetailCalendarView.SetDisplayDate(_selectedTask.DueDate.Value);
                 }
-            }
-            
-            if (DetailCalendarView.Visibility == Visibility.Visible && DrawerScrollViewer != null)
-            {
-                DrawerScrollViewer.UpdateLayout();
-                var transform = DetailCalendarView.TransformToVisual(DrawerScrollViewer);
-                var position = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
-                DrawerScrollViewer.ChangeView(null, position.Y - 50, null);
+                else
+                {
+                    DetailCalendarView.SetDisplayDate(today);
+                }
+                
+                ScrollToElement(DetailCalendarView);
             }
         }
         
@@ -949,6 +1084,7 @@ namespace Todo
                 
                 _dbService.UpdateTask(_selectedTask);
                 DetailCalendarView.Visibility = Visibility.Collapsed;
+                ScrollToElement(DueDateButton);
             }
         }
         
@@ -970,6 +1106,12 @@ namespace Todo
                 ReminderSettingsPanel.Visibility = ReminderSettingsPanel.Visibility == Visibility.Visible 
                     ? Visibility.Collapsed 
                     : Visibility.Visible;
+                
+                if (ReminderSettingsPanel.Visibility == Visibility.Collapsed)
+                {
+                    ScrollToElement(ReminderButton);
+                    return;
+                }
                 
                 if (ReminderCalendarView != null)
                 {
@@ -1039,12 +1181,9 @@ namespace Todo
 
                 RefreshReminderSelectedDatesText();
                 
-                if (ReminderSettingsPanel.Visibility == Visibility.Visible && DrawerScrollViewer != null)
+                if (ReminderSettingsPanel.Visibility == Visibility.Visible)
                 {
-                    DrawerScrollViewer.UpdateLayout();
-                    var transform = ReminderSettingsPanel.TransformToVisual(DrawerScrollViewer);
-                    var position = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
-                    DrawerScrollViewer.ChangeView(null, position.Y - 50, null);
+                    ScrollToElement(ReminderSettingsPanel);
                 }
             }
             catch (Exception ex)
@@ -1077,6 +1216,7 @@ namespace Todo
         private void CancelReminderSettings_Click(object sender, RoutedEventArgs e)
         {
             ReminderSettingsPanel.Visibility = Visibility.Collapsed;
+            ScrollToElement(ReminderButton);
         }
         
         private void ConfirmReminderSettings_Click(object sender, RoutedEventArgs e)
@@ -1164,6 +1304,7 @@ namespace Todo
                     if (ReminderSettingsPanel != null)
                     {
                         ReminderSettingsPanel.Visibility = Visibility.Collapsed;
+                        ScrollToElement(ReminderButton);
                     }
 
                     ReminderService.Instance.ResetNotifiedReminders();
@@ -1268,7 +1409,7 @@ namespace Todo
         {
             if (_isAnimating) return;
             _isAnimating = true;
-            CloseDrawer();
+            CloseDrawer(false);
 
             // 设置固定模式样式
             this.SetPinnedStyle(400, 500);

@@ -167,6 +167,13 @@
                         <ScrollViewer Grid.Row="1" Padding="40,0,40,0">
                             <StackPanel MinWidth="300" HorizontalAlignment="Stretch">
                                 <ItemsControl x:Name="TasksList">
+                                    <ItemsControl.ItemContainerTransitions>
+                                        <TransitionCollection>
+                                            <AddDeleteThemeTransition/>
+                                            <RepositionThemeTransition/>
+                                            <EntranceThemeTransition/>
+                                        </TransitionCollection>
+                                    </ItemsControl.ItemContainerTransitions>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border BorderBrush="#333" 
@@ -175,6 +182,8 @@
                                                     Height="60" 
                                                     Margin="0,0,0,10" 
                                                     Background="#1e1e1e"
+                                                    Loaded="TaskBorder_Loaded"
+                                                    Unloaded="TaskBorder_Unloaded"
                                                     PointerPressed="TaskItem_PointerPressed"
                                                     PointerEntered="TaskItem_PointerEntered"
                                                     PointerExited="TaskItem_PointerExited"
@@ -225,7 +234,10 @@
                                     </StackPanel>
                                 </Button>
 
-                                <ItemsControl x:Name="CompletedTasksList" Visibility="Collapsed">
+                                <ItemsControl x:Name="CompletedTasksList" Visibility="Collapsed" Opacity="0">
+                                    <ItemsControl.RenderTransform>
+                                        <TranslateTransform x:Name="CompletedListTransform" Y="0"/>
+                                    </ItemsControl.RenderTransform>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border BorderBrush="#333" 
@@ -235,6 +247,8 @@
                                                     Margin="0,0,0,10" 
                                                     Background="#1e1e1e" 
                                                     Opacity="0.6"
+                                                    Loaded="TaskBorder_Loaded"
+                                                    Unloaded="TaskBorder_Unloaded"
                                                     PointerPressed="TaskItem_PointerPressed"
                                                     PointerEntered="TaskItem_PointerEntered"
                                                     PointerExited="TaskItem_PointerExited"
@@ -340,6 +354,9 @@
                           BorderBrush="#2a2a2a" 
                           BorderThickness="1,0,0,0"
                           Visibility="Collapsed">
+                        <Grid.RenderTransform>
+                            <TranslateTransform x:Name="DrawerTranslateTransform" X="380"/>
+                        </Grid.RenderTransform>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>

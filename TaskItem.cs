@@ -10,6 +10,7 @@ namespace Todo
     {
         private bool _isChecked;
         private bool _isSelected;
+        private bool _isImportant;
         private string _title = "";
         private string _description = "";
         private DateTime? _dueDate;
@@ -74,6 +75,17 @@ namespace Todo
             {
                 if (_isSelected == value) return;
                 _isSelected = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool IsImportant
+        {
+            get => _isImportant;
+            set
+            {
+                if (_isImportant == value) return;
+                _isImportant = value;
                 OnPropertyChanged();
             }
         }

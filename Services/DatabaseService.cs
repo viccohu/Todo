@@ -4,6 +4,7 @@ using Windows.Storage;
 using System.Collections.Generic;
 using System.IO;
 using System;
+using System.Linq;
 
 namespace Todo.Services
 {
@@ -35,8 +36,10 @@ namespace Todo.Services
                 CREATE TABLE IF NOT EXISTS Lists (
                     Id INTEGER PRIMARY KEY AUTOINCREMENT,
                     Name TEXT NOT NULL,
-                    GroupId INTEGER NOT NULL,
+                    GroupId INTEGER,
                     ""Order"" INTEGER NOT NULL DEFAULT 0,
+                    IsBuiltIn INTEGER NOT NULL DEFAULT 0,
+                    ListCategory INTEGER NOT NULL DEFAULT 0,
                     FOREIGN KEY (GroupId) REFERENCES Groups(Id)
                 );
 
@@ -46,6 +49,7 @@ namespace Todo.Services
                     Description TEXT,
                     DueDate TEXT,
                     IsChecked INTEGER NOT NULL DEFAULT 0,
+                    IsImportant INTEGER NOT NULL DEFAULT 0,
                     ParentTaskId INTEGER,
                     ListId INTEGER,
                     CreatedAt TEXT NOT NULL,
@@ -84,17 +88,125 @@ namespace Todo.Services
                     NextDueDate TEXT,
                     FOREIGN KEY (TaskId) REFERENCES Tasks(Id)
                 );
+
+                CREATE TABLE IF NOT EXISTS NotepadTabs (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Title TEXT NOT NULL,
+                    Content TEXT NOT NULL DEFAULT '',
+                    FilePath TEXT,
+                    IsModified INTEGER NOT NULL DEFAULT 0,
+                    ""Order"" INTEGER NOT NULL DEFAULT 0,
+                    CreatedAt TEXT NOT NULL,
+                    UpdatedAt TEXT NOT NULL
+                );
             ";
             command.ExecuteNonQuery();
-            
+
             MigrateDatabase(connection);
+            EnsureBuiltInLists(connection);
         }
-        
+
         private void MigrateDatabase(SqliteConnection connection)
         {
-            var pragmaCommand = connection.CreateCommand();
-            pragmaCommand.CommandText = "PRAGMA table_info(Reminders)";
+            MigrateRemindersTable(connection);
+            MigrateRecurrencesTable(connection);
+            MigrateTasksTable(connection);
+            MigrateListsTable(connection);
+        }
+
+        private void MigrateRemindersTable(SqliteConnection connection)
+        {
+            var columns = GetTableColumns(connection, "Reminders");
+
+            if (!columns.Contains("CustomDays"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Reminders ADD COLUMN CustomDays TEXT");
+            }
+
+            if (!columns.Contains("SameDayIntervalMinutes"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Reminders ADD COLUMN SameDayIntervalMinutes INTEGER NOT NULL DEFAULT 0");
+            }
+
+            if (!columns.Contains("EnableMultiDayReminders"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Reminders ADD COLUMN EnableMultiDayReminders INTEGER NOT NULL DEFAULT 0");
+            }
+        }
+
+        private void MigrateRecurrencesTable(SqliteConnection connection)
+        {
+            var columns = GetTableColumns(connection, "Recurrences");
+
+            if (!columns.Contains("NextDueDate"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Recurrences ADD COLUMN NextDueDate TEXT");
+            }
+        }
+
+        private void MigrateTasksTable(SqliteConnection connection)
+        {
+            var columns = GetTableColumns(connection, "Tasks");
+
+            if (!columns.Contains("IsImportant"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Tasks ADD COLUMN IsImportant INTEGER NOT NULL DEFAULT 0");
+            }
+        }
+
+        private void MigrateListsTable(SqliteConnection connection)
+        {
+            var columns = GetTableColumns(connection, "Lists");
+
+            if (!columns.Contains("IsBuiltIn"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Lists ADD COLUMN IsBuiltIn INTEGER NOT NULL DEFAULT 0");
+            }
+
+            if (!columns.Contains("ListCategory"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Lists ADD COLUMN ListCategory INTEGER NOT NULL DEFAULT 0");
+            }
+
+            var notNullColumns = GetTableNotNullColumns(connection, "Lists");
+            if (notNullColumns.Contains("GroupId"))
+            {
+                RecreateListsTableWithNullableGroupId(connection);
+            }
+        }
+
+        private void RecreateListsTableWithNullableGroupId(SqliteConnection connection)
+        {
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                CREATE TABLE Lists_New (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Name TEXT NOT NULL,
+                    GroupId INTEGER,
+                    ""Order"" INTEGER NOT NULL DEFAULT 0,
+                    IsBuiltIn INTEGER NOT NULL DEFAULT 0,
+                    ListCategory INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY (GroupId) REFERENCES Groups(Id)
+                );
+
+                INSERT INTO Lists_New (Id, Name, GroupId, ""Order"", IsBuiltIn, ListCategory)
+                SELECT Id, Name, GroupId, ""Order"",
+                       COALESCE(IsBuiltIn, 0),
+                       COALESCE(ListCategory, 0)
+                FROM Lists;
+
+                DROP TABLE Lists;
+
+                ALTER TABLE Lists_New RENAME TO Lists;
+            ";
+            cmd.ExecuteNonQuery();
+        }
+
+        private List<string> GetTableColumns(SqliteConnection connection, string tableName)
+        {
             var columns = new List<string>();
+            var pragmaCommand = connection.CreateCommand();
+            pragmaCommand.CommandText = $"PRAGMA table_info({tableName})";
             using (var reader = pragmaCommand.ExecuteReader())
             {
                 while (reader.Read())
@@ -102,44 +214,66 @@ namespace Todo.Services
                     columns.Add(reader.GetString(1));
                 }
             }
-            
-            if (!columns.Contains("CustomDays"))
-            {
-                var alterCommand1 = connection.CreateCommand();
-                alterCommand1.CommandText = "ALTER TABLE Reminders ADD COLUMN CustomDays TEXT";
-                alterCommand1.ExecuteNonQuery();
-            }
-            
-            if (!columns.Contains("SameDayIntervalMinutes"))
-            {
-                var alterCommand2 = connection.CreateCommand();
-                alterCommand2.CommandText = "ALTER TABLE Reminders ADD COLUMN SameDayIntervalMinutes INTEGER NOT NULL DEFAULT 0";
-                alterCommand2.ExecuteNonQuery();
-            }
-            
-            if (!columns.Contains("EnableMultiDayReminders"))
-            {
-                var alterCommand3 = connection.CreateCommand();
-                alterCommand3.CommandText = "ALTER TABLE Reminders ADD COLUMN EnableMultiDayReminders INTEGER NOT NULL DEFAULT 0";
-                alterCommand3.ExecuteNonQuery();
-            }
-            
-            var recurrencePragma = connection.CreateCommand();
-            recurrencePragma.CommandText = "PRAGMA table_info(Recurrences)";
-            var recurrenceColumns = new List<string>();
-            using (var reader = recurrencePragma.ExecuteReader())
+            return columns;
+        }
+
+        private List<string> GetTableNotNullColumns(SqliteConnection connection, string tableName)
+        {
+            var columns = new List<string>();
+            var pragmaCommand = connection.CreateCommand();
+            pragmaCommand.CommandText = $"PRAGMA table_info({tableName})";
+            using (var reader = pragmaCommand.ExecuteReader())
             {
                 while (reader.Read())
                 {
-                    recurrenceColumns.Add(reader.GetString(1));
+                    var notNull = reader.GetInt32(3);
+                    if (notNull == 1)
+                    {
+                        columns.Add(reader.GetString(1));
+                    }
                 }
             }
-            
-            if (!recurrenceColumns.Contains("NextDueDate"))
+            return columns;
+        }
+
+        private void ExecuteAlter(SqliteConnection connection, string sql)
+        {
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.ExecuteNonQuery();
+        }
+
+        private void EnsureBuiltInLists(SqliteConnection connection)
+        {
+            var builtInLists = new[]
             {
-                var alterRecurrence = connection.CreateCommand();
-                alterRecurrence.CommandText = "ALTER TABLE Recurrences ADD COLUMN NextDueDate TEXT";
-                alterRecurrence.ExecuteNonQuery();
+                new { Name = "日常", Category = ListCategory.Daily },
+                new { Name = "周常", Category = ListCategory.Weekly },
+                new { Name = "月常", Category = ListCategory.Monthly },
+                new { Name = "记事本", Category = ListCategory.Notepad }
+            };
+
+            foreach (var item in builtInLists)
+            {
+                var checkCmd = connection.CreateCommand();
+                checkCmd.CommandText = "SELECT COUNT(*) FROM Lists WHERE IsBuiltIn = 1 AND ListCategory = $category";
+                checkCmd.Parameters.AddWithValue("$category", (int)item.Category);
+                var count = Convert.ToInt32(checkCmd.ExecuteScalar());
+
+                if (count == 0)
+                {
+                    var orderCmd = connection.CreateCommand();
+                    orderCmd.CommandText = "SELECT COALESCE(MAX(\"Order\"), -1) + 1 FROM Lists";
+                    var order = Convert.ToInt32(orderCmd.ExecuteScalar());
+
+                    var insertCmd = connection.CreateCommand();
+                    insertCmd.CommandText = "INSERT INTO Lists (Name, GroupId, \"Order\", IsBuiltIn, ListCategory) VALUES ($name, $groupId, $order, 1, $category); SELECT last_insert_rowid();";
+                    insertCmd.Parameters.AddWithValue("$name", item.Name);
+                    insertCmd.Parameters.AddWithValue("$groupId", DBNull.Value);
+                    insertCmd.Parameters.AddWithValue("$order", order);
+                    insertCmd.Parameters.AddWithValue("$category", (int)item.Category);
+                    insertCmd.ExecuteScalar();
+                }
             }
         }
 
@@ -151,7 +285,7 @@ namespace Todo.Services
             var groups = new List<TaskGroup>();
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Id, Name, \"Order\", IsExpanded FROM Groups ORDER BY \"Order\"";
-            
+
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -172,8 +306,9 @@ namespace Todo.Services
         {
             var lists = new List<TaskList>();
             var command = connection.CreateCommand();
-            command.CommandText = $"SELECT Id, Name, \"Order\" FROM Lists WHERE GroupId = {groupId} ORDER BY \"Order\"";
-            
+            command.CommandText = "SELECT Id, Name, \"Order\", IsBuiltIn, ListCategory FROM Lists WHERE GroupId = $groupId ORDER BY \"Order\"";
+            command.Parameters.AddWithValue("$groupId", groupId);
+
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -182,10 +317,64 @@ namespace Todo.Services
                     Id = reader.GetInt32(0),
                     Name = reader.GetString(1),
                     Order = reader.GetInt32(2),
-                    GroupId = groupId
+                    GroupId = groupId,
+                    IsBuiltIn = reader.GetInt32(3) == 1,
+                    ListCategory = (ListCategory)reader.GetInt32(4)
                 });
             }
             return lists;
+        }
+
+        public List<TaskList> GetStandaloneLists()
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var lists = new List<TaskList>();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, Name, \"Order\", IsBuiltIn, ListCategory FROM Lists WHERE GroupId IS NULL AND IsBuiltIn = 0 ORDER BY \"Order\"";
+
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    lists.Add(new TaskList
+                    {
+                        Id = reader.GetInt32(0),
+                        Name = reader.GetString(1),
+                        Order = reader.GetInt32(2),
+                        GroupId = null,
+                        IsBuiltIn = reader.GetInt32(3) == 1,
+                        ListCategory = (ListCategory)reader.GetInt32(4)
+                    });
+                }
+            }
+            return lists;
+        }
+
+        public TaskList? GetBuiltInListByCategory(ListCategory category)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, Name, \"Order\", IsBuiltIn, ListCategory FROM Lists WHERE IsBuiltIn = 1 AND ListCategory = $category";
+            command.Parameters.AddWithValue("$category", (int)category);
+
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                return new TaskList
+                {
+                    Id = reader.GetInt32(0),
+                    Name = reader.GetString(1),
+                    Order = reader.GetInt32(2),
+                    GroupId = null,
+                    IsBuiltIn = reader.GetInt32(3) == 1,
+                    ListCategory = (ListCategory)reader.GetInt32(4)
+                };
+            }
+            return null;
         }
 
         public TaskGroup AddGroup(string name)
@@ -201,45 +390,173 @@ namespace Todo.Services
             command.CommandText = "INSERT INTO Groups (Name, \"Order\") VALUES ($name, $order); SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$name", name);
             command.Parameters.AddWithValue("$order", order);
-            
+
             var id = Convert.ToInt32(command.ExecuteScalar());
             return new TaskGroup { Id = id, Name = name, Order = order };
         }
 
-        public TaskList AddList(string name, int groupId)
+        public TaskList AddList(string name, int? groupId = null)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
 
             var orderCommand = connection.CreateCommand();
-            orderCommand.CommandText = $"SELECT COALESCE(MAX(\"Order\"), -1) + 1 FROM Lists WHERE GroupId = {groupId}";
+            if (groupId.HasValue)
+            {
+                orderCommand.CommandText = "SELECT COALESCE(MAX(\"Order\"), -1) + 1 FROM Lists WHERE GroupId = $groupId";
+                orderCommand.Parameters.AddWithValue("$groupId", groupId.Value);
+            }
+            else
+            {
+                orderCommand.CommandText = "SELECT COALESCE(MAX(\"Order\"), -1) + 1 FROM Lists WHERE GroupId IS NULL";
+            }
             var order = Convert.ToInt32(orderCommand.ExecuteScalar());
 
             var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO Lists (Name, GroupId, \"Order\") VALUES ($name, $groupId, $order); SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$name", name);
-            command.Parameters.AddWithValue("$groupId", groupId);
+            command.Parameters.AddWithValue("$groupId", groupId.HasValue ? (object)groupId.Value : DBNull.Value);
             command.Parameters.AddWithValue("$order", order);
-            
+
             var id = Convert.ToInt32(command.ExecuteScalar());
             return new TaskList { Id = id, Name = name, GroupId = groupId, Order = order };
         }
 
-        public TaskItem AddTask(string title, DateTime? dueDate = null, int? parentTaskId = null, int? listId = null)
+        public TaskList AddListStandalone(string name)
+        {
+            return AddList(name, null);
+        }
+
+        public void MoveListToGroup(int listId, int? groupId)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
 
             var command = connection.CreateCommand();
-            command.CommandText = "INSERT INTO Tasks (Title, DueDate, ParentTaskId, ListId, CreatedAt) VALUES ($title, $dueDate, $parentTaskId, $listId, $createdAt); SELECT last_insert_rowid();";
+            command.CommandText = "UPDATE Lists SET GroupId = $groupId WHERE Id = $id";
+            command.Parameters.AddWithValue("$groupId", groupId.HasValue ? (object)groupId.Value : DBNull.Value);
+            command.Parameters.AddWithValue("$id", listId);
+            command.ExecuteNonQuery();
+        }
+
+        public TaskItem AddTask(string title, DateTime? dueDate = null, int? parentTaskId = null, int? listId = null, bool isImportant = false)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO Tasks (Title, DueDate, IsImportant, ParentTaskId, ListId, CreatedAt) VALUES ($title, $dueDate, $isImportant, $parentTaskId, $listId, $createdAt); SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$title", title);
             command.Parameters.AddWithValue("$dueDate", dueDate?.ToString("o"));
+            command.Parameters.AddWithValue("$isImportant", isImportant ? 1 : 0);
             command.Parameters.AddWithValue("$parentTaskId", parentTaskId.HasValue ? parentTaskId.Value : DBNull.Value);
             command.Parameters.AddWithValue("$listId", listId.HasValue ? listId.Value : DBNull.Value);
             command.Parameters.AddWithValue("$createdAt", DateTime.Now.ToString("o"));
-            
+
             var id = Convert.ToInt32(command.ExecuteScalar());
-            return new TaskItem { Id = id, Title = title, DueDate = dueDate, ParentTaskId = parentTaskId, ListId = listId, CreatedAt = DateTime.Now };
+            return new TaskItem { Id = id, Title = title, DueDate = dueDate, IsImportant = isImportant, ParentTaskId = parentTaskId, ListId = listId, CreatedAt = DateTime.Now };
+        }
+
+        public void UpdateTaskImportant(int id, bool isImportant)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE Tasks SET IsImportant = $isImportant WHERE Id = $id";
+            command.Parameters.AddWithValue("$isImportant", isImportant ? 1 : 0);
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+
+        public List<TaskItem> GetImportantTasks()
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var tasks = new List<TaskItem>();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE IsImportant = 1 ORDER BY CreatedAt DESC";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                tasks.Add(ReadTaskItem(reader));
+            }
+            return tasks;
+        }
+
+        public List<TaskItem> GetTasksByListId(int listId, bool? isChecked = null)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var tasks = new List<TaskItem>();
+            var command = connection.CreateCommand();
+
+            if (isChecked.HasValue)
+            {
+                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE ListId = $listId AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.Parameters.AddWithValue("$listId", listId);
+                command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
+            }
+            else
+            {
+                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE ListId = $listId ORDER BY CreatedAt DESC";
+                command.Parameters.AddWithValue("$listId", listId);
+            }
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                tasks.Add(ReadTaskItem(reader));
+            }
+            return tasks;
+        }
+
+        public List<TaskItem> GetTasksByGroupLists(int groupId, bool? isChecked = null)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var listIds = new List<int>();
+            var listCmd = connection.CreateCommand();
+            listCmd.CommandText = "SELECT Id FROM Lists WHERE GroupId = $groupId";
+            listCmd.Parameters.AddWithValue("$groupId", groupId);
+            using (var reader = listCmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    listIds.Add(reader.GetInt32(0));
+                }
+            }
+
+            if (listIds.Count == 0) return new List<TaskItem>();
+
+            var tasks = new List<TaskItem>();
+            var placeholders = string.Join(",", listIds.Select((_, i) => $"$listId{i}"));
+            var command = connection.CreateCommand();
+
+            if (isChecked.HasValue)
+            {
+                command.CommandText = $"SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE ListId IN ({placeholders}) AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
+            }
+            else
+            {
+                command.CommandText = $"SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE ListId IN ({placeholders}) ORDER BY CreatedAt DESC";
+            }
+
+            for (int i = 0; i < listIds.Count; i++)
+            {
+                command.Parameters.AddWithValue($"$listId{i}", listIds[i]);
+            }
+
+            using var reader2 = command.ExecuteReader();
+            while (reader2.Read())
+            {
+                tasks.Add(ReadTaskItem(reader2));
+            }
+            return tasks;
         }
 
         public void UpdateGroupName(int id, string name)
@@ -268,8 +585,14 @@ namespace Todo.Services
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
+
+            var updateCmd = connection.CreateCommand();
+            updateCmd.CommandText = "UPDATE Lists SET GroupId = NULL WHERE GroupId = $id";
+            updateCmd.Parameters.AddWithValue("$id", id);
+            updateCmd.ExecuteNonQuery();
+
             var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM Lists WHERE GroupId = $id; DELETE FROM Groups WHERE Id = $id";
+            command.CommandText = "DELETE FROM Groups WHERE Id = $id";
             command.Parameters.AddWithValue("$id", id);
             command.ExecuteNonQuery();
         }
@@ -278,6 +601,16 @@ namespace Todo.Services
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
+
+            var deleteTasksCmd = connection.CreateCommand();
+            deleteTasksCmd.CommandText = @"
+                DELETE FROM SubTasks WHERE ParentTaskId IN (SELECT Id FROM Tasks WHERE ListId = $listId);
+                DELETE FROM Reminders WHERE TaskId IN (SELECT Id FROM Tasks WHERE ListId = $listId);
+                DELETE FROM Recurrences WHERE TaskId IN (SELECT Id FROM Tasks WHERE ListId = $listId);
+                DELETE FROM Tasks WHERE ListId = $listId";
+            deleteTasksCmd.Parameters.AddWithValue("$listId", id);
+            deleteTasksCmd.ExecuteNonQuery();
+
             var command = connection.CreateCommand();
             command.CommandText = "DELETE FROM Lists WHERE Id = $id";
             command.Parameters.AddWithValue("$id", id);
@@ -291,32 +624,21 @@ namespace Todo.Services
 
             var tasks = new List<TaskItem>();
             var command = connection.CreateCommand();
-            
+
             if (isChecked.HasValue)
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE IsChecked = $isChecked ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
             }
             else
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks ORDER BY CreatedAt DESC";
+                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks ORDER BY CreatedAt DESC";
             }
-            
+
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
-                tasks.Add(new TaskItem
-                {
-                    Id = reader.GetInt32(0),
-                    Title = reader.GetString(1),
-                    Description = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    DueDate = reader.IsDBNull(3) ? null : DateTime.Parse(reader.GetString(3)),
-                    IsChecked = reader.GetInt32(4) == 1,
-                    ParentTaskId = reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                    ListId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                    CreatedAt = DateTime.Parse(reader.GetString(7)),
-                    CompletedAt = reader.IsDBNull(8) ? null : DateTime.Parse(reader.GetString(8))
-                });
+                tasks.Add(ReadTaskItem(reader));
             }
             return tasks;
         }
@@ -353,7 +675,7 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$parentId", parentTaskId);
             command.Parameters.AddWithValue("$title", title);
             command.Parameters.AddWithValue("$createdAt", DateTime.Now.ToString("o"));
-            
+
             var id = Convert.ToInt32(command.ExecuteScalar());
             return new SubTask { Id = id, ParentTaskId = parentTaskId, Title = title, CreatedAt = DateTime.Now };
         }
@@ -398,7 +720,7 @@ namespace Todo.Services
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Id, ParentTaskId, Title, IsChecked, CreatedAt FROM SubTasks WHERE ParentTaskId = $taskId ORDER BY CreatedAt";
             command.Parameters.AddWithValue("$taskId", taskId);
-            
+
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -426,7 +748,7 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$dateTime", dateTime?.ToString("o"));
             command.Parameters.AddWithValue("$isRecurring", isRecurring ? 1 : 0);
             command.Parameters.AddWithValue("$interval", (int)interval);
-            
+
             var id = Convert.ToInt32(command.ExecuteScalar());
             return new Reminder { Id = id, TaskId = taskId, ReminderType = type, ReminderDateTime = dateTime, IsRecurring = isRecurring, RecurringInterval = interval };
         }
@@ -440,7 +762,7 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$id", id);
             command.ExecuteNonQuery();
         }
-        
+
         public void DeleteRemindersForTask(int taskId)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
@@ -450,15 +772,15 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$taskId", taskId);
             command.ExecuteNonQuery();
         }
-        
+
         public void AddReminderWithDetails(Reminder reminder)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = @"INSERT INTO Reminders 
-                                  (TaskId, ReminderType, ReminderDateTime, IsRecurring, RecurringInterval, CustomDays, SameDayIntervalMinutes, EnableMultiDayReminders) 
-                                  VALUES ($taskId, $type, $dateTime, $isRecurring, $interval, $customDays, $intervalMinutes, $enableMultiDay); 
+            command.CommandText = @"INSERT INTO Reminders
+                                  (TaskId, ReminderType, ReminderDateTime, IsRecurring, RecurringInterval, CustomDays, SameDayIntervalMinutes, EnableMultiDayReminders)
+                                  VALUES ($taskId, $type, $dateTime, $isRecurring, $interval, $customDays, $intervalMinutes, $enableMultiDay);
                                   SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$taskId", reminder.TaskId);
             command.Parameters.AddWithValue("$type", (int)reminder.ReminderType);
@@ -468,7 +790,7 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$customDays", reminder.CustomDays ?? (object)DBNull.Value);
             command.Parameters.AddWithValue("$intervalMinutes", reminder.SameDayIntervalMinutes);
             command.Parameters.AddWithValue("$enableMultiDay", reminder.EnableMultiDayReminders ? 1 : 0);
-            
+
             var id = Convert.ToInt32(command.ExecuteScalar());
             reminder.Id = id;
         }
@@ -484,13 +806,13 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$type", (int)type);
             command.Parameters.AddWithValue("$baseDate", baseDate.ToString("o"));
             command.Parameters.AddWithValue("$nextDueDate", CalculateNextRecurrenceDate(type, baseDate).ToString("o"));
-            
+
             var id = Convert.ToInt32(command.ExecuteScalar());
-            var recurrence = new Recurrence 
-            { 
-                Id = id, 
-                TaskId = taskId, 
-                RecurrenceType = type, 
+            var recurrence = new Recurrence
+            {
+                Id = id,
+                TaskId = taskId,
+                RecurrenceType = type,
                 BaseDate = baseDate,
                 NextDueDate = CalculateNextRecurrenceDate(type, baseDate)
             };
@@ -518,51 +840,42 @@ namespace Todo.Services
                 _ => baseDate
             };
         }
-        
+
         public void UpdateTask(TaskItem task)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = @"UPDATE Tasks 
-                                   SET Title = $title, 
+            command.CommandText = @"UPDATE Tasks
+                                   SET Title = $title,
                                        Description = $description,
-                                       DueDate = $dueDate
+                                       DueDate = $dueDate,
+                                       IsImportant = $isImportant
                                    WHERE Id = $id";
             command.Parameters.AddWithValue("$title", task.Title);
             command.Parameters.AddWithValue("$description", task.Description ?? (object)DBNull.Value);
             command.Parameters.AddWithValue("$dueDate", task.DueDate?.ToString("o") ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$isImportant", task.IsImportant ? 1 : 0);
             command.Parameters.AddWithValue("$id", task.Id);
             command.ExecuteNonQuery();
         }
-        
+
         public TaskItem? GetTaskById(int id)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE Id = $id";
+            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE Id = $id";
             command.Parameters.AddWithValue("$id", id);
-            
+
             using var reader = command.ExecuteReader();
             if (reader.Read())
             {
-                return new TaskItem
-                {
-                    Id = reader.GetInt32(0),
-                    Title = reader.GetString(1),
-                    Description = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    DueDate = reader.IsDBNull(3) ? null : DateTime.Parse(reader.GetString(3)),
-                    IsChecked = reader.GetInt32(4) == 1,
-                    ParentTaskId = reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                    ListId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                    CreatedAt = DateTime.Parse(reader.GetString(7)),
-                    CompletedAt = reader.IsDBNull(8) ? null : DateTime.Parse(reader.GetString(8))
-                };
+                return ReadTaskItem(reader);
             }
             return null;
         }
-        
+
         public List<Reminder> GetRemindersForTask(int taskId)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
@@ -571,7 +884,7 @@ namespace Todo.Services
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Id, TaskId, ReminderType, ReminderDateTime, IsRecurring, RecurringInterval, CustomDays, SameDayIntervalMinutes, EnableMultiDayReminders FROM Reminders WHERE TaskId = $taskId";
             command.Parameters.AddWithValue("$taskId", taskId);
-            
+
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -590,14 +903,14 @@ namespace Todo.Services
             }
             return reminders;
         }
-        
+
         public void UpdateReminder(Reminder reminder)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = @"UPDATE Reminders 
-                                   SET ReminderType = $type, 
+            command.CommandText = @"UPDATE Reminders
+                                   SET ReminderType = $type,
                                        ReminderDateTime = $dateTime,
                                        IsRecurring = $isRecurring,
                                        RecurringInterval = $interval,
@@ -615,7 +928,7 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$id", reminder.Id);
             command.ExecuteNonQuery();
         }
-        
+
         public Recurrence? GetRecurrenceForTask(int taskId)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
@@ -623,7 +936,7 @@ namespace Todo.Services
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Id, TaskId, RecurrenceType, BaseDate, NextDueDate FROM Recurrences WHERE TaskId = $taskId";
             command.Parameters.AddWithValue("$taskId", taskId);
-            
+
             using var reader = command.ExecuteReader();
             if (reader.Read())
             {
@@ -638,14 +951,14 @@ namespace Todo.Services
             }
             return null;
         }
-        
+
         public void UpdateRecurrence(Recurrence recurrence)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = @"UPDATE Recurrences 
-                                   SET RecurrenceType = $type, 
+            command.CommandText = @"UPDATE Recurrences
+                                   SET RecurrenceType = $type,
                                        BaseDate = $baseDate,
                                        NextDueDate = $nextDueDate
                                    WHERE Id = $id";
@@ -655,20 +968,20 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$id", recurrence.Id);
             command.ExecuteNonQuery();
         }
-        
+
         public List<Reminder> GetDueReminders(DateTime currentTime, TimeSpan? lookbackWindow = null)
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var reminders = new List<Reminder>();
             var command = connection.CreateCommand();
-            command.CommandText = @"SELECT r.Id, r.TaskId, r.ReminderType, r.ReminderDateTime, r.IsRecurring, 
+            command.CommandText = @"SELECT r.Id, r.TaskId, r.ReminderType, r.ReminderDateTime, r.IsRecurring,
                                    r.RecurringInterval, r.CustomDays, r.SameDayIntervalMinutes, r.EnableMultiDayReminders
-                                   FROM Reminders r 
-                                   INNER JOIN Tasks t ON r.TaskId = t.Id 
-                                   WHERE r.ReminderDateTime IS NOT NULL 
+                                   FROM Reminders r
+                                   INNER JOIN Tasks t ON r.TaskId = t.Id
+                                   WHERE r.ReminderDateTime IS NOT NULL
                                    AND t.IsChecked = 0";
-            
+
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -699,6 +1012,130 @@ namespace Todo.Services
                 });
             }
             return reminders;
+        }
+
+        private TaskItem ReadTaskItem(SqliteDataReader reader)
+        {
+            return new TaskItem
+            {
+                Id = reader.GetInt32(0),
+                Title = reader.GetString(1),
+                Description = reader.IsDBNull(2) ? null : reader.GetString(2),
+                DueDate = reader.IsDBNull(3) ? null : DateTime.Parse(reader.GetString(3)),
+                IsChecked = reader.GetInt32(4) == 1,
+                IsImportant = reader.GetInt32(5) == 1,
+                ParentTaskId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                ListId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                CreatedAt = DateTime.Parse(reader.GetString(8)),
+                CompletedAt = reader.IsDBNull(9) ? null : DateTime.Parse(reader.GetString(9))
+            };
+        }
+
+        public List<NotepadTab> GetNotepadTabs()
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var tabs = new List<NotepadTab>();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, Title, Content, FilePath, IsModified, \"Order\", CreatedAt, UpdatedAt FROM NotepadTabs ORDER BY \"Order\"";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                tabs.Add(new NotepadTab
+                {
+                    Id = reader.GetInt32(0),
+                    Title = reader.GetString(1),
+                    Content = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    FilePath = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    IsModified = reader.GetInt32(4) == 1,
+                    Order = reader.GetInt32(5),
+                    CreatedAt = DateTime.Parse(reader.GetString(6)),
+                    UpdatedAt = DateTime.Parse(reader.GetString(7))
+                });
+            }
+            return tabs;
+        }
+
+        public NotepadTab AddNotepadTab(string title)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var orderCommand = connection.CreateCommand();
+            orderCommand.CommandText = "SELECT COALESCE(MAX(\"Order\"), -1) + 1 FROM NotepadTabs";
+            var order = Convert.ToInt32(orderCommand.ExecuteScalar());
+
+            var now = DateTime.Now.ToString("o");
+            var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO NotepadTabs (Title, Content, FilePath, IsModified, \"Order\", CreatedAt, UpdatedAt) VALUES ($title, $content, $filePath, $isModified, $order, $createdAt, $updatedAt); SELECT last_insert_rowid();";
+            command.Parameters.AddWithValue("$title", title);
+            command.Parameters.AddWithValue("$content", "");
+            command.Parameters.AddWithValue("$filePath", DBNull.Value);
+            command.Parameters.AddWithValue("$isModified", 0);
+            command.Parameters.AddWithValue("$order", order);
+            command.Parameters.AddWithValue("$createdAt", now);
+            command.Parameters.AddWithValue("$updatedAt", now);
+
+            var id = Convert.ToInt32(command.ExecuteScalar());
+            return new NotepadTab
+            {
+                Id = id,
+                Title = title,
+                Content = "",
+                FilePath = null,
+                IsModified = false,
+                Order = order,
+                CreatedAt = DateTime.Now,
+                UpdatedAt = DateTime.Now
+            };
+        }
+
+        public void UpdateNotepadTabContent(int id, string content)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE NotepadTabs SET Content = $content, UpdatedAt = $updatedAt WHERE Id = $id";
+            command.Parameters.AddWithValue("$content", content);
+            command.Parameters.AddWithValue("$updatedAt", DateTime.Now.ToString("o"));
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+
+        public void UpdateNotepadTabTitle(int id, string title)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE NotepadTabs SET Title = $title, UpdatedAt = $updatedAt WHERE Id = $id";
+            command.Parameters.AddWithValue("$title", title);
+            command.Parameters.AddWithValue("$updatedAt", DateTime.Now.ToString("o"));
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+
+        public void UpdateNotepadTabFilePath(int id, string? filePath)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE NotepadTabs SET FilePath = $filePath, UpdatedAt = $updatedAt WHERE Id = $id";
+            command.Parameters.AddWithValue("$filePath", filePath != null ? (object)filePath : DBNull.Value);
+            command.Parameters.AddWithValue("$updatedAt", DateTime.Now.ToString("o"));
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+
+        public void DeleteNotepadTab(int id)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM NotepadTabs WHERE Id = $id";
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
         }
     }
 }

@@ -16,6 +16,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
+using Windows.Storage.Pickers;
+using Windows.Storage;
+using WinRT.Interop;
 
 namespace Todo
 {
@@ -36,9 +39,21 @@ namespace Todo
         
         private System.ComponentModel.PropertyChangedEventHandler? TaskItemPropertyChanged;
         
-        // 动画相关字段
         private bool _isAnimating = false;
         private Storyboard? _drawerStoryboard;
+
+        private string _currentNavTag = "Important";
+        private int? _currentListId = null;
+        private List<TaskList> _standaloneLists = new List<TaskList>();
+
+        private ObservableCollection<NotepadTab> _notepadTabs = new ObservableCollection<NotepadTab>();
+        private NotepadTab? _currentNotepadTab = null;
+        private DispatcherTimer? _notepadSaveTimer;
+        private bool _isNotepadInitialized = false;
+        private bool _isNotepadTabSwitching = false;
+
+        private SystemTrayService? _trayService;
+        private bool _isExiting = false;
 
         public ObservableCollection<TaskItem> Tasks { get; } = new ObservableCollection<TaskItem>();
         public ObservableCollection<TaskItem> CompletedTasks { get; } = new ObservableCollection<TaskItem>();
@@ -49,25 +64,115 @@ namespace Todo
             this.InitializeComponent();
             InitializeCustomTitleBar();
             InitializeCalendarBounds();
-            InitializeData();
             LoadCustomGroups();
+
+            _trayService = new SystemTrayService(this);
+            _trayService.ExitRequested += () =>
+            {
+                _isExiting = true;
+                _trayService.Dispose();
+                Close();
+            };
+
+            if (_appWindow != null)
+            {
+                _appWindow.Closing += (sender, args) =>
+                {
+                    if (!_isExiting)
+                    {
+                        args.Cancel = true;
+                        _trayService?.HideToTray();
+                    }
+                };
+            }
+
             ReminderService.Instance.TaskCompletedFromNotification += ReminderService_TaskCompletedFromNotification;
-            
+
             NavView.SelectedItem = NavView.MenuItems[1];
+            LoadTasksForCurrentNav();
+
+            this.Closed += MainWindow_Closed;
         }
 
-        private void InitializeData()
+        private void MainWindow_Closed(object sender, WindowEventArgs args)
         {
-            var allTasks = _dbService.GetTasks();
+            System.Diagnostics.Debug.WriteLine($"[Notepad] MainWindow_Closed: _currentNavTag={_currentNavTag}, _currentNotepadTab={_currentNotepadTab?.Id}");
+            if (_currentNavTag == "Notepad")
+            {
+                SaveCurrentNotepadTab();
+            }
+        }
+
+        private void LoadTasksForCurrentNav()
+        {
+            Tasks.Clear();
+            CompletedTasks.Clear();
+            _borderSubscriptions.Clear();
+
+            List<TaskItem> allTasks;
+
+            switch (_currentNavTag)
+            {
+                case "Important":
+                    allTasks = _dbService.GetImportantTasks();
+                    break;
+                case "Daily":
+                case "Weekly":
+                case "Monthly":
+                    {
+                        var category = _currentNavTag switch
+                        {
+                            "Daily" => ListCategory.Daily,
+                            "Weekly" => ListCategory.Weekly,
+                            "Monthly" => ListCategory.Monthly,
+                            _ => ListCategory.None
+                        };
+                        var builtInList = _dbService.GetBuiltInListByCategory(category);
+                        if (builtInList != null)
+                        {
+                            _currentListId = builtInList.Id;
+                            allTasks = _dbService.GetTasksByListId(builtInList.Id);
+                        }
+                        else
+                        {
+                            allTasks = new List<TaskItem>();
+                        }
+                        break;
+                    }
+                case "StandaloneList":
+                case "GroupList":
+                    if (_currentListId.HasValue)
+                    {
+                        allTasks = _dbService.GetTasksByListId(_currentListId.Value);
+                    }
+                    else
+                    {
+                        allTasks = new List<TaskItem>();
+                    }
+                    break;
+                case "Group":
+                    if (_currentListId.HasValue)
+                    {
+                        allTasks = _dbService.GetTasksByGroupLists(_currentListId.Value);
+                    }
+                    else
+                    {
+                        allTasks = new List<TaskItem>();
+                    }
+                    break;
+                default:
+                    allTasks = new List<TaskItem>();
+                    break;
+            }
+
             foreach (var task in allTasks)
             {
-                // 加载每个任务的子任务
                 var subTasks = _dbService.GetSubTasksForTask(task.Id);
                 foreach (var subTask in subTasks)
                 {
                     task.SubTasks.Add(subTask);
                 }
-                
+
                 if (task.IsChecked)
                 {
                     CompletedTasks.Add(task);
@@ -77,7 +182,7 @@ namespace Todo
                     Tasks.Add(task);
                 }
             }
-            
+
             TasksList.ItemsSource = Tasks;
             CompletedTasksList.ItemsSource = CompletedTasks;
         }
@@ -99,6 +204,7 @@ namespace Todo
             {
                 CustomGroups.Add(group);
             }
+            _standaloneLists = _dbService.GetStandaloneLists();
             RefreshCustomNavigation();
         }
 
@@ -107,14 +213,54 @@ namespace Todo
             var itemsToRemove = new List<object>();
             foreach (var item in NavView.MenuItems)
             {
-                if (item is NavigationViewItem navItem && navItem.Tag?.ToString()?.StartsWith("Group_") == true)
+                if (item is NavigationViewItem navItem)
                 {
-                    itemsToRemove.Add(item);
+                    var tag = navItem.Tag?.ToString();
+                    if (tag?.StartsWith("Group_") == true || tag?.StartsWith("StandaloneList_") == true || tag == "CustomEmptyIcon")
+                    {
+                        itemsToRemove.Add(item);
+                    }
                 }
             }
             foreach (var item in itemsToRemove)
             {
                 NavView.MenuItems.Remove(item);
+            }
+
+            var hasCustomItems = _standaloneLists.Count > 0 || CustomGroups.Count > 0;
+
+            if (!hasCustomItems)
+            {
+                var emptyItem = new NavigationViewItem
+                {
+                    Tag = "CustomEmptyIcon",
+                    IsEnabled = false,
+                    SelectsOnInvoked = false
+                };
+                var emptyPanel = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Opacity = 0.12
+                };
+                var emptyIcon = new FontIcon { Glyph = "\uE8FD", FontSize = 28, Foreground = new SolidColorBrush(Colors.White), HorizontalAlignment = HorizontalAlignment.Center };
+                var emptyText = new TextBlock { Text = "自定义区域", FontSize = 10, Foreground = new SolidColorBrush(Colors.White), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) };
+                emptyPanel.Children.Add(emptyIcon);
+                emptyPanel.Children.Add(emptyText);
+                emptyItem.Content = emptyPanel;
+                NavView.MenuItems.Add(emptyItem);
+            }
+
+            foreach (var list in _standaloneLists)
+            {
+                var listItem = new NavigationViewItem
+                {
+                    Content = list.Name,
+                    Tag = $"StandaloneList_{list.Id}"
+                };
+                listItem.Icon = new FontIcon { Glyph = "\uE8FD" };
+                listItem.ContextFlyout = CreateListContextFlyout(list);
+                NavView.MenuItems.Add(listItem);
             }
 
             foreach (var group in CustomGroups)
@@ -126,6 +272,7 @@ namespace Todo
                     IsExpanded = group.IsExpanded
                 };
                 groupItem.Icon = new FontIcon { Glyph = "\uE8B7" };
+                groupItem.ContextFlyout = CreateGroupContextFlyout(group);
 
                 foreach (var list in group.Lists)
                 {
@@ -135,10 +282,168 @@ namespace Todo
                         Tag = $"List_{list.Id}"
                     };
                     listItem.Icon = new FontIcon { Glyph = "\uE8FD" };
+                    listItem.ContextFlyout = CreateListContextFlyout(list);
                     groupItem.MenuItems.Add(listItem);
                 }
 
                 NavView.MenuItems.Add(groupItem);
+            }
+        }
+
+        private MenuFlyout CreateListContextFlyout(TaskList list)
+        {
+            var flyout = new MenuFlyout();
+
+            var renameItem = new MenuFlyoutItem { Text = "重命名", Icon = new SymbolIcon(Symbol.Rename) };
+            renameItem.Click += (s, e) => ShowRenameListDialog(list);
+            flyout.Items.Add(renameItem);
+
+            var moveToItem = new MenuFlyoutSubItem { Text = "移至分组" };
+            moveToItem.Icon = new FontIcon { Glyph = "\uE8C6" };
+
+            var noGroupItem = new ToggleMenuFlyoutItem { Text = "（独立列表）", IsChecked = list.GroupId == null };
+            noGroupItem.Click += (s, e) => MoveListToGroup(list, null);
+            moveToItem.Items.Add(noGroupItem);
+
+            var groups = _dbService.GetGroups();
+            foreach (var group in groups)
+            {
+                var groupItem = new ToggleMenuFlyoutItem { Text = group.Name, IsChecked = list.GroupId == group.Id };
+                groupItem.Click += (s, e) => MoveListToGroup(list, group.Id);
+                moveToItem.Items.Add(groupItem);
+            }
+
+            flyout.Items.Add(moveToItem);
+
+            var deleteItem = new MenuFlyoutItem { Text = "删除", Icon = new SymbolIcon(Symbol.Delete) };
+            deleteItem.Click += (s, e) => ShowDeleteListDialog(list);
+            flyout.Items.Add(deleteItem);
+
+            return flyout;
+        }
+
+        private void MoveListToGroup(TaskList list, int? groupId)
+        {
+            _dbService.MoveListToGroup(list.Id, groupId);
+            LoadCustomGroups();
+        }
+
+        private MenuFlyout CreateGroupContextFlyout(TaskGroup group)
+        {
+            var flyout = new MenuFlyout();
+
+            var renameItem = new MenuFlyoutItem { Text = "重命名", Icon = new SymbolIcon(Symbol.Rename) };
+            renameItem.Click += (s, e) => ShowRenameGroupDialog(group);
+            flyout.Items.Add(renameItem);
+
+            var deleteItem = new MenuFlyoutItem { Text = "删除", Icon = new SymbolIcon(Symbol.Delete) };
+            deleteItem.Click += (s, e) => ShowDeleteGroupDialog(group);
+            flyout.Items.Add(deleteItem);
+
+            return flyout;
+        }
+
+        private async void ShowRenameListDialog(TaskList list)
+        {
+            var textBox = new TextBox
+            {
+                Text = list.Name,
+                PlaceholderText = "输入列表名称",
+                SelectionStart = 0,
+                SelectionLength = list.Name.Length
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = "重命名列表",
+                Content = textBox,
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
+            {
+                _dbService.UpdateListName(list.Id, textBox.Text.Trim());
+                list.Name = textBox.Text.Trim();
+                LoadCustomGroups();
+            }
+        }
+
+        private async void ShowDeleteListDialog(TaskList list)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "删除列表",
+                Content = $"确定要删除列表\"{list.Name}\"及其所有任务吗？",
+                PrimaryButtonText = "删除",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                _dbService.DeleteList(list.Id);
+                LoadCustomGroups();
+                if (_currentListId == list.Id)
+                {
+                    _currentNavTag = "Important";
+                    _currentListId = null;
+                    NavView.SelectedItem = NavView.MenuItems[1];
+                    LoadTasksForCurrentNav();
+                    UpdatePageHeader();
+                }
+            }
+        }
+
+        private async void ShowRenameGroupDialog(TaskGroup group)
+        {
+            var textBox = new TextBox
+            {
+                Text = group.Name,
+                PlaceholderText = "输入分组名称",
+                SelectionStart = 0,
+                SelectionLength = group.Name.Length
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = "重命名分组",
+                Content = textBox,
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
+            {
+                _dbService.UpdateGroupName(group.Id, textBox.Text.Trim());
+                group.Name = textBox.Text.Trim();
+                LoadCustomGroups();
+            }
+        }
+
+        private async void ShowDeleteGroupDialog(TaskGroup group)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "删除分组",
+                Content = $"确定要删除分组\"{group.Name}\"吗？分组内的列表将变为独立列表。",
+                PrimaryButtonText = "删除",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                _dbService.DeleteGroup(group.Id);
+                LoadCustomGroups();
             }
         }
 
@@ -188,47 +493,235 @@ namespace Todo
 
         private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
+            if (_isDrawerOpen)
+            {
+                CloseDrawer(false);
+            }
+
             if (args.SelectedItem is NavigationViewItem item)
             {
                 var tag = item.Tag?.ToString();
                 
-                if (tag?.StartsWith("List_") == true)
+                if (tag?.StartsWith("StandaloneList_") == true)
                 {
+                    var idStr = tag.Substring("StandaloneList_".Length);
+                    if (int.TryParse(idStr, out int listId))
+                    {
+                        _currentNavTag = "StandaloneList";
+                        _currentListId = listId;
+                    }
                     PageTitle.Text = item.Content?.ToString() ?? "列表";
                     PageIcon.Glyph = "\uE8FD";
+                    ShowTaskListContent();
+                    LoadTasksForCurrentNav();
+                    return;
+                }
+
+                if (tag?.StartsWith("List_") == true)
+                {
+                    var idStr = tag.Substring("List_".Length);
+                    if (int.TryParse(idStr, out int listId))
+                    {
+                        _currentNavTag = "GroupList";
+                        _currentListId = listId;
+                    }
+                    PageTitle.Text = item.Content?.ToString() ?? "列表";
+                    PageIcon.Glyph = "\uE8FD";
+                    ShowTaskListContent();
+                    LoadTasksForCurrentNav();
                     return;
                 }
                 
                 if (tag?.StartsWith("Group_") == true)
                 {
+                    var idStr = tag.Substring("Group_".Length);
+                    if (int.TryParse(idStr, out int groupId))
+                    {
+                        _currentNavTag = "Group";
+                        _currentListId = groupId;
+                    }
                     PageTitle.Text = item.Content?.ToString() ?? "分组";
                     PageIcon.Glyph = "\uE8B7";
+                    ShowTaskListContent();
+                    LoadTasksForCurrentNav();
                     return;
                 }
                 
+                _currentListId = null;
+
                 switch (tag)
                 {
-                    case "Calendar":
-                        PageTitle.Text = "日历视图";
-                        PageIcon.Glyph = "\uE787";
+                    case "Notepad":
+                        _currentNavTag = "Notepad";
+                        PageTitle.Text = "记事本";
+                        PageIcon.Glyph = "\uE70F";
+                        ShowNotepadContent();
                         break;
                     case "Important":
+                        _currentNavTag = "Important";
                         PageTitle.Text = "重要任务";
                         PageIcon.Glyph = "\uE8C8";
+                        ShowTaskListContent();
+                        LoadTasksForCurrentNav();
                         break;
                     case "Daily":
+                        _currentNavTag = "Daily";
                         PageTitle.Text = "日常";
                         PageIcon.Glyph = "\uE823";
+                        ShowTaskListContent();
+                        LoadTasksForCurrentNav();
                         break;
                     case "Weekly":
+                        _currentNavTag = "Weekly";
                         PageTitle.Text = "周常";
                         PageIcon.Glyph = "\uE817";
+                        ShowTaskListContent();
+                        LoadTasksForCurrentNav();
                         break;
                     case "Monthly":
+                        _currentNavTag = "Monthly";
                         PageTitle.Text = "月常";
                         PageIcon.Glyph = "\uE817";
+                        ShowTaskListContent();
+                        LoadTasksForCurrentNav();
                         break;
                 }
+            }
+        }
+
+        private void ShowTaskListContent()
+        {
+            System.Diagnostics.Debug.WriteLine($"[Notepad] ShowTaskListContent: _currentNavTag={_currentNavTag}");
+            if (_currentNavTag == "Notepad")
+            {
+                SaveCurrentNotepadTab();
+            }
+            PageHeader.Visibility = Visibility.Visible;
+            NotepadContent.Visibility = Visibility.Collapsed;
+            TaskListScrollViewer.Visibility = Visibility.Visible;
+            AddTaskBar.Visibility = Visibility.Visible;
+        }
+
+        private void ShowNotepadContent()
+        {
+            System.Diagnostics.Debug.WriteLine($"[Notepad] ShowNotepadContent: _isNotepadInitialized={_isNotepadInitialized}");
+            PageHeader.Visibility = Visibility.Collapsed;
+            NotepadContent.Visibility = Visibility.Visible;
+            TaskListScrollViewer.Visibility = Visibility.Collapsed;
+            AddTaskBar.Visibility = Visibility.Collapsed;
+
+            if (!_isNotepadInitialized)
+            {
+                InitializeNotepad();
+            }
+        }
+
+        private void InitializeNotepad()
+        {
+            _isNotepadInitialized = true;
+            var tabs = _dbService.GetNotepadTabs();
+            _notepadTabs.Clear();
+            NotepadTabView.TabItems.Clear();
+
+            foreach (var tab in tabs)
+            {
+                _notepadTabs.Add(tab);
+                NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
+            }
+
+            if (_notepadTabs.Count == 0)
+            {
+                AddNotepadTab("未命名");
+            }
+            else
+            {
+                NotepadTabView.SelectedIndex = 0;
+            }
+        }
+
+        private TabViewItem CreateTabViewItem(NotepadTab tab)
+        {
+            var tabItem = new TabViewItem
+            {
+                Header = tab.Title,
+                Tag = tab,
+                IsClosable = true
+            };
+            tab.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(NotepadTab.Title))
+                {
+                    tabItem.Header = tab.Title;
+                }
+            };
+            return tabItem;
+        }
+
+        private void AddNotepadTab(string title)
+        {
+            var tab = _dbService.AddNotepadTab(title);
+            _notepadTabs.Add(tab);
+            NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
+            NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
+        }
+
+        private void SaveCurrentNotepadTab()
+        {
+            System.Diagnostics.Debug.WriteLine($"[Notepad] SaveCurrentNotepadTab: _currentNotepadTab={_currentNotepadTab?.Id}, editorText.Length={NotepadEditor.Text?.Length ?? 0}");
+            if (_currentNotepadTab != null)
+            {
+                _currentNotepadTab.Content = NotepadEditor.Text ?? "";
+                _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, NotepadEditor.Text ?? "");
+                System.Diagnostics.Debug.WriteLine($"[Notepad] SaveCurrentNotepadTab: 已保存 TabId={_currentNotepadTab.Id}, 内容长度={NotepadEditor.Text?.Length ?? 0}");
+
+                var firstLine = NotepadEditor.Text?.Split('\n').FirstOrDefault()?.TrimStart('#', ' ', '\t');
+                if (!string.IsNullOrWhiteSpace(firstLine) && _currentNotepadTab.Title == "未命名")
+                {
+                    var newTitle = firstLine.Length > 20 ? firstLine.Substring(0, 20) + "..." : firstLine;
+                    _currentNotepadTab.Title = newTitle;
+                    _dbService.UpdateNotepadTabTitle(_currentNotepadTab.Id, newTitle);
+                    System.Diagnostics.Debug.WriteLine($"[Notepad] SaveCurrentNotepadTab: 自动重命名 TabId={_currentNotepadTab.Id}, newTitle={newTitle}");
+                }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("[Notepad] SaveCurrentNotepadTab: _currentNotepadTab 为 null，跳过保存");
+            }
+        }
+
+        private void UpdatePageHeader()
+        {
+            switch (_currentNavTag)
+            {
+                case "Notepad":
+                    PageTitle.Text = "记事本";
+                    PageIcon.Glyph = "\uE70F";
+                    break;
+                case "Important":
+                    PageTitle.Text = "重要任务";
+                    PageIcon.Glyph = "\uE8C8";
+                    break;
+                case "Daily":
+                    PageTitle.Text = "日常";
+                    PageIcon.Glyph = "\uE823";
+                    break;
+                case "Weekly":
+                    PageTitle.Text = "周常";
+                    PageIcon.Glyph = "\uE817";
+                    break;
+                case "Monthly":
+                    PageTitle.Text = "月常";
+                    PageIcon.Glyph = "\uE817";
+                    break;
+                case "StandaloneList":
+                case "GroupList":
+                    PageTitle.Text = "列表";
+                    PageIcon.Glyph = "\uE8FD";
+                    break;
+                case "Group":
+                    PageTitle.Text = "分组";
+                    PageIcon.Glyph = "\uE8B7";
+                    break;
             }
         }
 
@@ -293,6 +786,7 @@ namespace Todo
                     ShowDrawer(task);
                     UpdateTaskItemSelection(task);
                 }
+                e.Handled = true;
             }
         }
 
@@ -403,6 +897,7 @@ namespace Todo
 
             DetailCalendarView.Visibility = Visibility.Collapsed;
             ReminderSettingsPanel.Visibility = Visibility.Collapsed;
+            ImportantToggle.IsOn = task.IsImportant;
 
             if (_isDrawerOpen)
             {
@@ -551,6 +1046,14 @@ namespace Todo
         private void CloseDrawer_Click(object sender, RoutedEventArgs e)
         {
             CloseDrawer();
+        }
+
+        private void ContentArea_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isDrawerOpen)
+            {
+                CloseDrawer();
+            }
         }
 
         private void DetailTitle_TextChanged(object sender, TextChangedEventArgs e)
@@ -790,7 +1293,29 @@ namespace Todo
         {
             if (!string.IsNullOrWhiteSpace(AddTaskTextBox.Text))
             {
-                var newTask = _dbService.AddTask(AddTaskTextBox.Text.Trim(), DateTime.Now);
+                int? listId = null;
+                bool isImportant = false;
+
+                switch (_currentNavTag)
+                {
+                    case "Important":
+                        isImportant = true;
+                        break;
+                    case "Daily":
+                    case "Weekly":
+                    case "Monthly":
+                    case "StandaloneList":
+                    case "GroupList":
+                        listId = _currentListId;
+                        break;
+                }
+
+                var newTask = _dbService.AddTask(AddTaskTextBox.Text.Trim(), DateTime.Now, null, listId, isImportant);
+                var subTasks = _dbService.GetSubTasksForTask(newTask.Id);
+                foreach (var subTask in subTasks)
+                {
+                    newTask.SubTasks.Add(subTask);
+                }
                 Tasks.Add(newTask);
             }
             HideAddTaskInput();
@@ -895,18 +1420,36 @@ namespace Todo
 
         private void NewList_Click(object sender, RoutedEventArgs e)
         {
-            if (CustomGroups.Count == 0)
-            {
-                NewGroup_Click(sender, e);
-            }
+            var newList = _dbService.AddListStandalone("新建列表");
+            LoadCustomGroups();
             
-            if (CustomGroups.Count > 0)
+            var newItem = FindNavItemByTag($"StandaloneList_{newList.Id}");
+            if (newItem != null)
             {
-                var targetGroup = CustomGroups[0];
-                var newList = _dbService.AddList("新建列表", targetGroup.Id);
-                targetGroup.Lists.Add(newList);
-                RefreshCustomNavigation();
+                NavView.SelectedItem = newItem;
             }
+        }
+
+        private NavigationViewItem? FindNavItemByTag(string tag)
+        {
+            foreach (var item in NavView.MenuItems)
+            {
+                if (item is NavigationViewItem navItem && navItem.Tag?.ToString() == tag)
+                {
+                    return navItem;
+                }
+                if (item is NavigationViewItem parentItem && parentItem.MenuItems != null)
+                {
+                    foreach (var child in parentItem.MenuItems)
+                    {
+                        if (child is NavigationViewItem childItem && childItem.Tag?.ToString() == tag)
+                        {
+                            return childItem;
+                        }
+                    }
+                }
+            }
+            return null;
         }
 
         private void DetailCheckBox_Click(object sender, RoutedEventArgs e)
@@ -1253,7 +1796,7 @@ namespace Todo
                                 ReminderDateTime = reminderDateTime,
                                 EnableMultiDayReminders = EnableSameDayReminderToggle?.IsOn ?? false,
                                 SameDayIntervalMinutes = (EnableSameDayReminderToggle?.IsOn ?? false) && SameDayIntervalComboBox?.SelectedItem is ComboBoxItem item
-                                    ? int.Parse(item.Tag.ToString())
+                                    ? int.Parse(item.Tag?.ToString() ?? "0")
                                     : 0
                             };
                             
@@ -1392,6 +1935,15 @@ namespace Todo
             }
         }
 
+        private void ImportantToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_selectedTask != null && sender is ToggleSwitch toggle)
+            {
+                _selectedTask.IsImportant = toggle.IsOn;
+                _dbService.UpdateTaskImportant(_selectedTask.Id, toggle.IsOn);
+            }
+        }
+
         private void ToggleDesktopMode_Click(object sender, RoutedEventArgs e)
         {
             _isDesktopMode = !_isDesktopMode;
@@ -1525,6 +2077,189 @@ namespace Todo
             }
 
             this.EndAnimation(toWidth, toHeight);
+        }
+
+        private void NotepadTabView_AddTabClick(TabView sender, object args)
+        {
+            AddNotepadTab("未命名");
+        }
+
+        private void NotepadTabView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Notepad] SelectionChanged: SelectedItem={NotepadTabView.SelectedItem?.GetType().Name}, _currentNotepadTab={_currentNotepadTab?.Id}");
+            if (NotepadTabView.SelectedItem is TabViewItem tabItem && tabItem.Tag is NotepadTab tab)
+            {
+                _isNotepadTabSwitching = true;
+
+                SaveCurrentNotepadTab();
+
+                _currentNotepadTab = tab;
+                NotepadEditor.Text = tab.Content;
+                System.Diagnostics.Debug.WriteLine($"[Notepad] SelectionChanged: 切换到 TabId={tab.Id}, 内容长度={tab.Content?.Length ?? 0}");
+
+                _isNotepadTabSwitching = false;
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"[Notepad] SelectionChanged: SelectedItem 不是 TabViewItem 或 Tag 不是 NotepadTab");
+            }
+        }
+
+        private void NotepadTabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
+        {
+            if (args.Item is TabViewItem tabItem && tabItem.Tag is NotepadTab tab)
+            {
+                _dbService.DeleteNotepadTab(tab.Id);
+                _notepadTabs.Remove(tab);
+                NotepadTabView.TabItems.Remove(tabItem);
+
+                if (_currentNotepadTab == tab)
+                {
+                    _currentNotepadTab = null;
+                }
+
+                if (_notepadTabs.Count == 0)
+                {
+                    AddNotepadTab("未命名");
+                }
+            }
+        }
+
+        private void NotepadEditor_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Notepad] TextChanged: _isNotepadTabSwitching={_isNotepadTabSwitching}, _currentNotepadTab={_currentNotepadTab?.Id}, text.Length={NotepadEditor.Text?.Length ?? 0}");
+            if (_isNotepadTabSwitching) return;
+
+            if (_notepadSaveTimer == null)
+            {
+                _notepadSaveTimer = new DispatcherTimer();
+                _notepadSaveTimer.Interval = TimeSpan.FromMilliseconds(2000);
+                _notepadSaveTimer.Tick += (s, args) =>
+                {
+                    _notepadSaveTimer?.Stop();
+                    System.Diagnostics.Debug.WriteLine("[Notepad] AutoSave timer tick: 触发自动保存");
+                    SaveCurrentNotepadTab();
+                };
+            }
+
+            _notepadSaveTimer.Stop();
+            _notepadSaveTimer.Start();
+        }
+
+        private void NotepadEditor_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
+            bool isCtrlDown = ctrl.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+            if (isCtrlDown && e.Key == Windows.System.VirtualKey.S)
+            {
+                System.Diagnostics.Debug.WriteLine("[Notepad] Ctrl+S: 触发手动保存");
+                SaveCurrentNotepadTab();
+                e.Handled = true;
+            }
+        }
+
+        private void InsertMarkdownSyntax(string prefix, string suffix)
+        {
+            var textBox = NotepadEditor;
+            var selectedText = textBox.SelectedText;
+            var start = textBox.SelectionStart;
+
+            if (!string.IsNullOrEmpty(selectedText))
+            {
+                var newText = prefix + selectedText + suffix;
+                textBox.Text = textBox.Text.Remove(start, selectedText.Length).Insert(start, newText);
+                textBox.SelectionStart = start + prefix.Length;
+                textBox.SelectionLength = selectedText.Length;
+            }
+            else
+            {
+                var placeholder = prefix + "文本" + suffix;
+                textBox.Text = textBox.Text.Insert(start, placeholder);
+                textBox.SelectionStart = start + prefix.Length;
+                textBox.SelectionLength = 2;
+            }
+        }
+
+        private void NotepadBold_Click(object sender, RoutedEventArgs e)
+        {
+            InsertMarkdownSyntax("**", "**");
+        }
+
+        private void NotepadItalic_Click(object sender, RoutedEventArgs e)
+        {
+            InsertMarkdownSyntax("*", "*");
+        }
+
+        private void NotepadUnderline_Click(object sender, RoutedEventArgs e)
+        {
+            InsertMarkdownSyntax("<u>", "</u>");
+        }
+
+        private void NotepadStrikethrough_Click(object sender, RoutedEventArgs e)
+        {
+            InsertMarkdownSyntax("~~", "~~");
+        }
+
+        private void NotepadOrderedList_Click(object sender, RoutedEventArgs e)
+        {
+            var textBox = NotepadEditor;
+            var start = textBox.SelectionStart;
+
+            var lineStart = textBox.Text.LastIndexOf('\n', start - 1) + 1;
+            if (lineStart < 0) lineStart = 0;
+
+            textBox.Text = textBox.Text.Insert(lineStart, "1. ");
+            textBox.SelectionStart = lineStart + 3;
+        }
+
+        private async void NotepadOpen_Click(object sender, RoutedEventArgs e)
+        {
+            var picker = new FileOpenPicker();
+            picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+            picker.FileTypeFilter.Add(".md");
+            picker.FileTypeFilter.Add(".txt");
+
+            var hwnd = WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(picker, hwnd);
+
+            var file = await picker.PickSingleFileAsync();
+            if (file != null)
+            {
+                var content = await FileIO.ReadTextAsync(file);
+                var tab = _dbService.AddNotepadTab(file.Name);
+                tab.Content = content;
+                tab.FilePath = file.Path;
+                _dbService.UpdateNotepadTabContent(tab.Id, content);
+                _dbService.UpdateNotepadTabFilePath(tab.Id, file.Path);
+
+                _notepadTabs.Add(tab);
+                NotepadTabView.SelectedIndex = _notepadTabs.Count - 1;
+            }
+        }
+
+        private async void NotepadSaveAs_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentNotepadTab == null) return;
+
+            var picker = new FileSavePicker();
+            picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+            picker.FileTypeChoices.Add("Markdown", new List<string> { ".md" });
+            picker.FileTypeChoices.Add("文本文件", new List<string> { ".txt" });
+            picker.SuggestedFileName = _currentNotepadTab.Title;
+
+            var hwnd = WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(picker, hwnd);
+
+            var file = await picker.PickSaveFileAsync();
+            if (file != null)
+            {
+                await FileIO.WriteTextAsync(file, NotepadEditor.Text);
+                _currentNotepadTab.FilePath = file.Path;
+                _currentNotepadTab.Title = file.Name;
+                _dbService.UpdateNotepadTabFilePath(_currentNotepadTab.Id, file.Path);
+                _dbService.UpdateNotepadTabTitle(_currentNotepadTab.Id, file.Name);
+            }
         }
     }
 }

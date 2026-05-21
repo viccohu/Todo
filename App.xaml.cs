@@ -44,9 +44,12 @@ namespace Todo
         /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            // 初始化桌面固定模式（Show Desktop 免疫）
+            WindowHelper.InitializeDesktopPin();
+
             _window = new MainWindow();
             _window.Activate();
-            
+
             ReminderService.Instance.Initialize();
         }
     }

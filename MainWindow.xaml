@@ -4,11 +4,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Todo"
     xmlns:models="using:Todo.Models"
+    xmlns:tc="using:TextControlBoxNS"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid x:Name="RootGrid" Background="#161616">
+    <Grid x:Name="RootGrid" Background="#161616" PointerPressed="RootGrid_PointerPressed">
         <Grid.RowDefinitions>
             <RowDefinition Height="32"/>
             <RowDefinition Height="*"/>
@@ -62,6 +63,8 @@
                             OpenPaneLength="260"
                             CompactPaneLength="60"
                             Background="#1c1c1c"
+                            PaneOpened="NavView_PaneOpened"
+                            PaneClosed="NavView_PaneClosed"
                             SelectionChanged="NavView_SelectionChanged">
                 
                 <!-- 固定导航项 -->
@@ -109,35 +112,41 @@
                 </NavigationView.FooterMenuItems>
 
                 <NavigationView.PaneFooter>
-                    <Grid Padding="8,4">
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Stretch">
-                            <Button x:Name="NewListButton" 
-                                    Click="NewList_Click"
-                                    HorizontalAlignment="Stretch"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="12,8"
-                                    CornerRadius="4"
-                                    HorizontalContentAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
-                                    <TextBlock Text="新建列表" FontSize="12" Foreground="#ccc"/>
-                                </StackPanel>
-                            </Button>
-                            <Button x:Name="NewGroupButton" 
-                                    Click="NewGroup_Click"
-                                    HorizontalAlignment="Stretch"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="12,8"
-                                    CornerRadius="4"
-                                    HorizontalContentAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
-                                    <TextBlock Text="新建分组" FontSize="12" Foreground="#ccc"/>
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
+                    <Grid x:Name="PaneFooterGrid" Padding="8,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="NewListButton"
+                                Grid.Column="0"
+                                Click="NewList_Click"
+                                HorizontalAlignment="Stretch"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="12,8"
+                                CornerRadius="4"
+                                HorizontalContentAlignment="Center"
+                                Margin="0,0,4,0">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
+                                <TextBlock Text="新建列表" FontSize="12" Foreground="#ccc"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="NewGroupButton"
+                                Grid.Column="1"
+                                Click="NewGroup_Click"
+                                HorizontalAlignment="Stretch"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="12,8"
+                                CornerRadius="4"
+                                HorizontalContentAlignment="Center"
+                                Margin="4,0,0,0">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
+                                <TextBlock Text="新建分组" FontSize="12" Foreground="#ccc"/>
+                            </StackPanel>
+                        </Button>
                     </Grid>
                 </NavigationView.PaneFooter>
 
@@ -171,7 +180,7 @@
                             </Grid.RowDefinitions>
 
                             <!-- TabView 标签栏 -->
-                            <TabView x:Name="NotepadTabView" 
+                            <TabView x:Name="NotepadTabView"
                                      Grid.Row="0"
                                      AddTabButtonClick="NotepadTabView_AddTabClick"
                                      TabCloseRequested="NotepadTabView_TabCloseRequested"
@@ -186,117 +195,169 @@
                                   Padding="8,4" BorderBrush="#333" BorderThickness="0,0,0,1">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
-                                <Button x:Name="NotepadOpenButton" Grid.Column="0"
-                                        Click="NotepadOpen_Click"
-                                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                                        ToolTipService.ToolTip="打开文件">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <FontIcon Glyph="&#xE8E5;" FontSize="14" Foreground="#ccc"/>
-                                        <TextBlock Text="打开" FontSize="12" Foreground="#ccc" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
+                                <!-- 左侧：文件操作 -->
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
+                                    <Button x:Name="NotepadOpenButton"
+                                            Click="NotepadOpen_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="打开文件">
+                                        <FontIcon Glyph="&#xE8E5;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadSaveButton"
+                                            Click="NotepadSave_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="保存">
+                                        <FontIcon Glyph="&#xE74E;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadSaveAsButton"
+                                            Click="NotepadSaveAs_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="另存为">
+                                        <FontIcon Glyph="&#xE792;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                </StackPanel>
 
-                                <Button x:Name="NotepadSaveAsButton" Grid.Column="1"
-                                        Click="NotepadSaveAs_Click"
-                                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                                        ToolTipService.ToolTip="另存为">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <FontIcon Glyph="&#xE74E;" FontSize="14" Foreground="#ccc"/>
-                                        <TextBlock Text="另存为" FontSize="12" Foreground="#ccc" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
+                                <!-- 中间：编辑工具（预览时隐藏） -->
+                                <StackPanel x:Name="NotepadEditTools" Grid.Column="1"
+                                            Orientation="Horizontal" Spacing="2"
+                                            HorizontalAlignment="Center">
 
-                                <Border Grid.Column="2" Width="1" Background="#333" Margin="8,2"/>
+                                    <Border Width="1" Background="#333" Margin="6,2"/>
 
-                                <Button x:Name="NotepadBoldButton" Grid.Column="3"
-                                        Click="NotepadBold_Click"
-                                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                                        ToolTipService.ToolTip="粗体">
-                                    <FontIcon Glyph="&#xE8DD;" FontSize="14" Foreground="#ccc"/>
-                                </Button>
+                                    <Button x:Name="NotepadHeadingButton"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="标题级别">
+                                        <FontIcon Glyph="&#xE8C8;" FontSize="15" Foreground="#ccc"/>
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="标题 1" Tag="1" Click="NotepadHeading_Click"/>
+                                                <MenuFlyoutItem Text="标题 2" Tag="2" Click="NotepadHeading_Click"/>
+                                                <MenuFlyoutItem Text="标题 3" Tag="3" Click="NotepadHeading_Click"/>
+                                                <MenuFlyoutItem Text="标题 4" Tag="4" Click="NotepadHeading_Click"/>
+                                                <MenuFlyoutItem Text="标题 5" Tag="5" Click="NotepadHeading_Click"/>
+                                                <MenuFlyoutItem Text="标题 6" Tag="6" Click="NotepadHeading_Click"/>
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
 
-                                <Button x:Name="NotepadItalicButton" Grid.Column="4"
-                                        Click="NotepadItalic_Click"
-                                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                                        ToolTipService.ToolTip="斜体">
-                                    <FontIcon Glyph="&#xE8DB;" FontSize="14" Foreground="#ccc"/>
-                                </Button>
+                                    <Border Width="1" Background="#333" Margin="6,2"/>
 
-                                <Button x:Name="NotepadUnderlineButton" Grid.Column="5"
-                                        Click="NotepadUnderline_Click"
-                                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                                        ToolTipService.ToolTip="下划线">
-                                    <FontIcon Glyph="&#xE8DC;" FontSize="14" Foreground="#ccc"/>
-                                </Button>
+                                    <Button x:Name="NotepadBoldButton"
+                                            Click="NotepadBold_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="粗体">
+                                        <FontIcon Glyph="&#xE8DD;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadItalicButton"
+                                            Click="NotepadItalic_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="斜体">
+                                        <FontIcon Glyph="&#xE8DB;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadUnderlineButton"
+                                            Click="NotepadUnderline_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="下划线">
+                                        <FontIcon Glyph="&#xE8DC;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadStrikethroughButton"
+                                            Click="NotepadStrikethrough_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="删除线">
+                                        <FontIcon Glyph="&#xE8DE;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
 
-                                <Button x:Name="NotepadStrikethroughButton" Grid.Column="6"
-                                        Click="NotepadStrikethrough_Click"
-                                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                                        ToolTipService.ToolTip="删除线">
-                                    <FontIcon Glyph="&#xE8DE;" FontSize="14" Foreground="#ccc"/>
-                                </Button>
+                                    <Border Width="1" Background="#333" Margin="6,2"/>
 
-                                <Border Grid.Column="7" Width="1" Background="#333" Margin="8,2"/>
+                                    <Button x:Name="NotepadUnorderedListButton"
+                                            Click="NotepadUnorderedList_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="无序列表">
+                                        <FontIcon Glyph="&#xE8FD;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadOrderedListButton"
+                                            Click="NotepadOrderedList_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="有序列表">
+                                        <FontIcon Glyph="&#xE8FE;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadCodeBlockButton"
+                                            Click="NotepadCodeBlock_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="代码块">
+                                        <FontIcon Glyph="&#xE943;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadQuoteButton"
+                                            Click="NotepadQuote_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="引用">
+                                        <FontIcon Glyph="&#xE90C;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
 
-                                <Button x:Name="NotepadOrderedListButton" Grid.Column="8"
-                                        Click="NotepadOrderedList_Click"
-                                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                                        ToolTipService.ToolTip="自动编号">
-                                    <FontIcon Glyph="&#xE8FD;" FontSize="14" Foreground="#ccc"/>
-                                </Button>
+                                    <Border Width="1" Background="#333" Margin="6,2"/>
 
-                                <Border Grid.Column="9" Width="1" Background="#333" Margin="8,2"/>
+                                    <Button x:Name="NotepadLinkButton"
+                                            Click="NotepadLink_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="链接">
+                                        <FontIcon Glyph="&#xE71B;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadImageButton"
+                                            Click="NotepadImage_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="图片">
+                                        <FontIcon Glyph="&#xE722;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadTableButton"
+                                            Click="NotepadTable_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="表格">
+                                        <FontIcon Glyph="&#xE8D4;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+                                    <Button x:Name="NotepadHorizontalRuleButton"
+                                            Click="NotepadHorizontalRule_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="分割线">
+                                        <FontIcon Glyph="&#xE706;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
 
-                                <Button x:Name="NotepadPreviewToggleButton" Grid.Column="10"
-                                        Click="NotepadPreviewToggle_Click"
-                                        Background="Transparent" BorderThickness="0" Padding="8,4"
-                                        ToolTipService.ToolTip="切换预览/编辑">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <FontIcon x:Name="NotepadPreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="#ccc"/>
-                                        <TextBlock x:Name="NotepadPreviewToggleText" Text="编辑" FontSize="12" Foreground="#ccc" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
+                                    <Border Width="1" Background="#333" Margin="6,2"/>
+
+                                    <Button x:Name="NotepadFindButton"
+                                            Click="NotepadFind_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="查找替换">
+                                        <FontIcon Glyph="&#xE721;" FontSize="15" Foreground="#ccc"/>
+                                    </Button>
+
+                                    <Border Width="1" Background="#333" Margin="6,2"/>
+                                </StackPanel>
+
+                                <!-- 右侧：预览/编辑切换 -->
+                                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                    <Button x:Name="NotepadPreviewToggleButton"
+                                            Click="NotepadPreviewToggle_Click"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            ToolTipService.ToolTip="切换预览/编辑">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon x:Name="NotepadPreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="#ccc"/>
+                                            <TextBlock x:Name="NotepadPreviewToggleText" Text="编辑" FontSize="12" Foreground="#ccc" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
                             </Grid>
 
-                            <!-- 编辑区 -->
-                            <TextBox x:Name="NotepadEditor"
+                            <!-- 编辑器区 -->
+                            <tc:TextControlBox x:Name="NotepadEditor"
                                      Grid.Row="2"
-                                     AcceptsReturn="True"
-                                     TextWrapping="Wrap"
                                      VerticalAlignment="Stretch"
                                      HorizontalAlignment="Stretch"
-                                     PlaceholderText=""
-                                     FontFamily="Consolas"
-                                     FontSize="14"
-                                     Foreground="#e0e0e0"
-                                     Background="#161616"
-                                     BorderThickness="0"
-                                     TextChanged="NotepadEditor_TextChanged"
-                                     KeyDown="NotepadEditor_KeyDown"
-                                     Visibility="Collapsed">
-                                <TextBox.Resources>
-                                    <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#555"/>
-                                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
-                                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
-                                    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
-                                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#161616"/>
-                                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#161616"/>
-                                    <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#e0e0e0"/>
-                                    <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
-                                    <x:Double x:Key="TextControlThemeMinHeight">0</x:Double>
-                                </TextBox.Resources>
-                            </TextBox>
+                                     Visibility="Collapsed"
+                                     Background="#161616"/>
 
                             <!-- Markdown 预览区 -->
                             <WebView2 x:Name="NotepadPreview"
@@ -304,6 +365,7 @@
                                       VerticalAlignment="Stretch"
                                       HorizontalAlignment="Stretch"
                                       Visibility="Visible"
+                                      DefaultBackgroundColor="#161616"
                                       DoubleTapped="NotepadPreview_DoubleTapped"/>
                         </Grid>
 
@@ -400,23 +462,29 @@
                                                         <ColumnDefinition Width="32"/>
                                                         <ColumnDefinition Width="*"/>
                                                         <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="4"/>
                                                     </Grid.ColumnDefinitions>
                                                     <CheckBox Grid.Column="0"
-                                                              IsChecked="{Binding IsChecked, Mode=TwoWay}" 
+                                                              IsChecked="{Binding IsChecked, Mode=TwoWay}"
                                                               Click="TaskCheckBox_Click"/>
                                                     <TextBlock Grid.Column="1"
-                                                               Text="{Binding Title}" 
+                                                               Text="{Binding Title}"
                                                                TextDecorations="Strikethrough"
-                                                               Foreground="#666" 
+                                                               Foreground="#666"
                                                                Margin="10,0,0,0"
                                                                VerticalAlignment="Center"/>
                                                     <StackPanel Grid.Column="2"
-                                                               HorizontalAlignment="Right" 
+                                                               HorizontalAlignment="Right"
                                                                VerticalAlignment="Center"
                                                                Margin="10,0,0,0">
                                                         <TextBlock Foreground="#444" FontSize="10" HorizontalAlignment="Right" Text="{Binding CreatedAtDisplay}"/>
                                                         <TextBlock Foreground="#555" FontSize="10" HorizontalAlignment="Right" Text="{Binding DueDateShortDisplay}"/>
                                                     </StackPanel>
+                                                    <Rectangle Grid.Column="3"
+                                                               Fill="{Binding CompletionIndicatorBrush}"
+                                                               VerticalAlignment="Stretch"
+                                                               RadiusX="2" RadiusY="2"
+                                                               Margin="0,2"/>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
@@ -450,22 +518,29 @@
                                 </Border>
                                 
                                 <!-- 输入框状态 -->
-                                <Border x:Name="AddTaskInputArea" 
-                                        BorderBrush="#333" 
-                                        BorderThickness="1" 
-                                        CornerRadius="8" 
+                                <Border x:Name="AddTaskInputArea"
+                                        BorderBrush="#333"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
                                         Height="60"
                                         HorizontalAlignment="Stretch"
                                         Background="#1e1e1e"
                                         Visibility="Collapsed">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="10,0">
-                                        <FontIcon Glyph="&#xE710;" FontSize="18" Foreground="#0078d4"/>
-                                        <TextBox x:Name="AddTaskTextBox" 
-                                                 Background="Transparent" 
+                                    <Grid Margin="10,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Grid.Column="0" Glyph="&#xE710;" FontSize="18" Foreground="#0078d4" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="AddTaskTextBox"
+                                                 Grid.Column="1"
+                                                 Background="Transparent"
                                                  BorderThickness="0"
                                                  FontSize="14"
                                                  Foreground="#0078d4"
                                                  VerticalAlignment="Center"
+                                                 Margin="12,0"
                                                  KeyDown="AddTaskInput_KeyDown"
                                                  LostFocus="AddTaskInput_LostFocus">
                                             <TextBox.Resources>
@@ -477,7 +552,52 @@
                                                 <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
                                             </TextBox.Resources>
                                         </TextBox>
-                                    </StackPanel>
+                                        <Button Grid.Column="2"
+                                                x:Name="AddTaskDueDateButton"
+                                                Click="AddTaskDueDate_Click"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Padding="6,4"
+                                                VerticalAlignment="Center"
+                                                ToolTipService.ToolTip="设置截止日期">
+                                            <FontIcon x:Name="AddTaskDueDateIcon"
+                                                      Glyph="&#xE787;"
+                                                      FontSize="16"
+                                                      Foreground="#555"/>
+                                            <Button.Flyout>
+                                                <Flyout>
+                                                    <Grid Padding="12" RowSpacing="8">
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
+                                                        <CalendarView x:Name="AddTaskCalendarView"
+                                                                      Grid.Row="0"
+                                                                      Language="zh-CN"
+                                                                      SelectedDatesChanged="AddTaskCalendarView_SelectedDatesChanged">
+                                                            <CalendarView.Resources>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="#0078D4"/>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedForeground" Color="White"/>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="#FFFFFF"/>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="#168DE2"/>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="#006CBE"/>
+                                                                <x:Double x:Key="CalendarViewCalendarItemBorderThemeThickness">2</x:Double>
+                                                            </CalendarView.Resources>
+                                                        </CalendarView>
+                                                        <Button Grid.Row="1"
+                                                                Content="清除日期"
+                                                                Click="AddTaskClearDate_Click"
+                                                                Background="Transparent"
+                                                                BorderThickness="0"
+                                                                Foreground="#888"
+                                                                FontSize="12"
+                                                                HorizontalAlignment="Right"
+                                                                Padding="8,4"/>
+                                                    </Grid>
+                                                </Flyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                    </Grid>
                                 </Border>
                             </Grid>
                         </Grid>
@@ -675,23 +795,48 @@
                                 </Border>
 
                                 <!-- 备注区（背景框） -->
-                                <Border Background="#222" CornerRadius="8" Padding="12" Margin="0,0,0,12">
-                                    <TextBox x:Name="DetailDescription" 
-                                             PlaceholderText="添加备注..." 
-                                             Background="Transparent" 
-                                             BorderThickness="0"
-                                             Foreground="#ccc"
-                                             AcceptsReturn="True"
-                                             TextWrapping="Wrap"
-                                             Height="100"
-                                             TextChanged="DetailDescription_TextChanged">
-                                        <TextBox.Resources>
-                                            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#666"/>
-                                            <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
-                                            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
-                                            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
-                                        </TextBox.Resources>
-                                    </TextBox>
+                                <Border Background="#222" CornerRadius="8" Margin="0,0,0,12">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <!-- 备注工具栏 -->
+                                        <Grid Grid.Row="0" Padding="12,8,8,4" HorizontalAlignment="Right">
+                                            <Button x:Name="InsertLinkButton"
+                                                    Click="InsertLink_Click"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Padding="6,4"
+                                                    ToolTipService.ToolTip="插入链接">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon Glyph="&#xE71B;" FontSize="14" Foreground="#0078d4"/>
+                                                    <TextBlock Text="链接" FontSize="12" Foreground="#0078d4" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Grid>
+                                        <!-- 备注文本框 -->
+                                        <TextBox Grid.Row="1"
+                                                 x:Name="DetailDescription"
+                                                 PlaceholderText="添加备注..."
+                                                 Background="Transparent"
+                                                 BorderThickness="0"
+                                                 Foreground="#ccc"
+                                                 AcceptsReturn="True"
+                                                 TextWrapping="Wrap"
+                                                 Height="100"
+                                                 Padding="12,0,12,12"
+                                                 TextChanged="DetailDescription_TextChanged"
+                                                 KeyDown="DetailDescription_KeyDown"
+                                                 RightTapped="DetailDescription_RightTapped">
+                                            <TextBox.Resources>
+                                                <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#666"/>
+                                                <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
+                                            </TextBox.Resources>
+                                        </TextBox>
+                                    </Grid>
                                 </Border>
 
                                 <!-- 设置区（背景框） -->
@@ -982,38 +1127,49 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <StackPanel Margin="0,0,0,6">
-                                        <Border BorderBrush="#333" 
-                                                BorderThickness="1" 
-                                                CornerRadius="6" 
-                                                Background="#262626" 
+                                        <Border BorderBrush="#333"
+                                                BorderThickness="1"
+                                                CornerRadius="6"
+                                                Background="#262626"
                                                 Opacity="0.6"
                                                 Padding="10,8">
-                                            <StackPanel>
-                                                <Grid MinHeight="28">
-                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
-                                                        <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888" FontSize="13" Margin="4,0,0,0"/>
-                                                    </CheckBox>
-                                                    <TextBlock Text="{Binding DueDateDisplay}" 
-                                                               HorizontalAlignment="Right" 
-                                                               VerticalAlignment="Center" 
-                                                               Foreground="#555" 
-                                                               FontSize="11"/>
-                                                </Grid>
-                                                <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Grid MinHeight="26" Margin="0,2,0,0">
-                                                                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
-                                                                    <TextBlock Text="{Binding Title}" 
-                                                                               TextDecorations="Strikethrough"
-                                                                               Foreground="#666" 
-                                                                               FontSize="12"/>
-                                                                </CheckBox>
-                                                            </Grid>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                            </StackPanel>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="4"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0">
+                                                    <Grid MinHeight="28">
+                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
+                                                            <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888" FontSize="13" Margin="4,0,0,0"/>
+                                                        </CheckBox>
+                                                        <TextBlock Text="{Binding DueDateDisplay}"
+                                                                   HorizontalAlignment="Right"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="#555"
+                                                                   FontSize="11"/>
+                                                    </Grid>
+                                                    <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Grid MinHeight="26" Margin="0,2,0,0">
+                                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
+                                                                        <TextBlock Text="{Binding Title}"
+                                                                                   TextDecorations="Strikethrough"
+                                                                                   Foreground="#666"
+                                                                                   FontSize="12"/>
+                                                                    </CheckBox>
+                                                                </Grid>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                                <Rectangle Grid.Column="1"
+                                                           Fill="{Binding CompletionIndicatorBrush}"
+                                                           VerticalAlignment="Stretch"
+                                                           RadiusX="2" RadiusY="2"
+                                                           Margin="0,2"/>
+                                            </Grid>
                                         </Border>
                                     </StackPanel>
                                 </DataTemplate>

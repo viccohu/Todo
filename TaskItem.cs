@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Collections.ObjectModel;
 using System;
+using Microsoft.UI;
+using Microsoft.UI.Xaml.Media;
 using Todo.Models;
 
 namespace Todo
@@ -55,8 +57,21 @@ namespace Todo
         public int? ParentTaskId { get; set; }
         public int? ListId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.Now;
+        private bool _isAutoCompleted;
+
         public DateTime? CompletedAt { get; set; }
-        
+        public bool IsAutoCompleted
+        {
+            get => _isAutoCompleted;
+            set
+            {
+                if (_isAutoCompleted == value) return;
+                _isAutoCompleted = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(CompletionIndicatorBrush));
+            }
+        }
+
         public bool IsChecked
         {
             get => _isChecked;
@@ -65,6 +80,7 @@ namespace Todo
                 if (_isChecked == value) return;
                 _isChecked = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(CompletionIndicatorBrush));
             }
         }
         
@@ -95,6 +111,12 @@ namespace Todo
         public string CreatedAtDisplay => CreatedAt.ToString("MM/dd");
         
         public string DueDateShortDisplay => DueDate?.ToString("MM/dd") ?? "无期限";
+
+        public SolidColorBrush? CompletionIndicatorBrush => IsChecked
+            ? (IsAutoCompleted
+                ? new SolidColorBrush(ColorHelper.FromArgb(255, 0xFF, 0x8C, 0x00))  // 橙色 = 系统自动完成
+                : new SolidColorBrush(ColorHelper.FromArgb(255, 0x00, 0x78, 0xD4))) // 蓝色 = 手动点击完成
+            : null;
         
         public ObservableCollection<SubTask> SubTasks { get; set; } = new ObservableCollection<SubTask>();
         public ObservableCollection<Reminder> Reminders { get; set; } = new ObservableCollection<Reminder>();

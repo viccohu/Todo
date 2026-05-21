@@ -50,6 +50,7 @@ namespace Todo.Services
                     DueDate TEXT,
                     IsChecked INTEGER NOT NULL DEFAULT 0,
                     IsImportant INTEGER NOT NULL DEFAULT 0,
+                    IsAutoCompleted INTEGER NOT NULL DEFAULT 0,
                     ParentTaskId INTEGER,
                     ListId INTEGER,
                     CreatedAt TEXT NOT NULL,
@@ -151,6 +152,11 @@ namespace Todo.Services
             if (!columns.Contains("IsImportant"))
             {
                 ExecuteAlter(connection, "ALTER TABLE Tasks ADD COLUMN IsImportant INTEGER NOT NULL DEFAULT 0");
+            }
+
+            if (!columns.Contains("IsAutoCompleted"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Tasks ADD COLUMN IsAutoCompleted INTEGER NOT NULL DEFAULT 0");
             }
         }
 
@@ -475,7 +481,7 @@ namespace Todo.Services
 
             var tasks = new List<TaskItem>();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE IsImportant = 1 ORDER BY CreatedAt DESC";
+            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks WHERE IsImportant = 1 ORDER BY CreatedAt DESC";
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -495,13 +501,13 @@ namespace Todo.Services
 
             if (isChecked.HasValue)
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE ListId = $listId AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks WHERE ListId = $listId AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$listId", listId);
                 command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
             }
             else
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE ListId = $listId ORDER BY CreatedAt DESC";
+                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks WHERE ListId = $listId ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$listId", listId);
             }
 
@@ -538,12 +544,12 @@ namespace Todo.Services
 
             if (isChecked.HasValue)
             {
-                command.CommandText = $"SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE ListId IN ({placeholders}) AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.CommandText = $"SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks WHERE ListId IN ({placeholders}) AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
             }
             else
             {
-                command.CommandText = $"SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE ListId IN ({placeholders}) ORDER BY CreatedAt DESC";
+                command.CommandText = $"SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks WHERE ListId IN ({placeholders}) ORDER BY CreatedAt DESC";
             }
 
             for (int i = 0; i < listIds.Count; i++)
@@ -627,12 +633,12 @@ namespace Todo.Services
 
             if (isChecked.HasValue)
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks WHERE IsChecked = $isChecked ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
             }
             else
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks ORDER BY CreatedAt DESC";
+                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks ORDER BY CreatedAt DESC";
             }
 
             using var reader = command.ExecuteReader();
@@ -648,11 +654,40 @@ namespace Todo.Services
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "UPDATE Tasks SET IsChecked = $isChecked, CompletedAt = $completedAt WHERE Id = $id";
+            command.CommandText = "UPDATE Tasks SET IsChecked = $isChecked, CompletedAt = $completedAt, IsAutoCompleted = 0 WHERE Id = $id";
             command.Parameters.AddWithValue("$isChecked", isChecked ? 1 : 0);
             command.Parameters.AddWithValue("$completedAt", isChecked ? DateTime.Now.ToString("o") : (object)DBNull.Value);
             command.Parameters.AddWithValue("$id", id);
             command.ExecuteNonQuery();
+        }
+
+        public void UpdateTaskAutoCompleted(int id)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE Tasks SET IsChecked = 1, IsAutoCompleted = 1, CompletedAt = $completedAt WHERE Id = $id";
+            command.Parameters.AddWithValue("$completedAt", DateTime.Now.ToString("o"));
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+
+        public List<TaskItem> GetOverdueUncheckedTasks()
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var tasks = new List<TaskItem>();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks WHERE IsChecked = 0 AND DueDate IS NOT NULL AND DueDate < $now ORDER BY CreatedAt";
+            command.Parameters.AddWithValue("$now", DateTime.Now.ToString("o"));
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                tasks.Add(ReadTaskItem(reader));
+            }
+            return tasks;
         }
 
         public void DeleteTask(int id)
@@ -865,7 +900,7 @@ namespace Todo.Services
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt FROM Tasks WHERE Id = $id";
+            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted FROM Tasks WHERE Id = $id";
             command.Parameters.AddWithValue("$id", id);
 
             using var reader = command.ExecuteReader();
@@ -1027,7 +1062,8 @@ namespace Todo.Services
                 ParentTaskId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
                 ListId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
                 CreatedAt = DateTime.Parse(reader.GetString(8)),
-                CompletedAt = reader.IsDBNull(9) ? null : DateTime.Parse(reader.GetString(9))
+                CompletedAt = reader.IsDBNull(9) ? null : DateTime.Parse(reader.GetString(9)),
+                IsAutoCompleted = reader.IsDBNull(10) ? false : reader.GetInt32(10) == 1
             };
         }
 

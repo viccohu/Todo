@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using System.Collections.ObjectModel;
 using System;
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
 using Microsoft.UI;
 using Windows.Graphics;
@@ -19,7 +20,6 @@ using System.Threading;
 using Windows.Storage.Pickers;
 using Windows.Storage;
 using WinRT.Interop;
-using Markdig;
 
 namespace Todo
 {
@@ -37,6 +37,10 @@ namespace Todo
         
         private DispatcherTimer? _saveTitleTimer;
         private DispatcherTimer? _saveDescriptionTimer;
+        private bool _isUpdatingDescriptionText;
+        // 链接追踪: 显示文本中标题的位置 → URL
+        private List<(string title, string url, int displayIndex, int displayLength)> _descriptionLinks = new();
+        private string _previousDescriptionText = "";
         
         private System.ComponentModel.PropertyChangedEventHandler? TaskItemPropertyChanged;
         
@@ -45,19 +49,11 @@ namespace Todo
 
         private string _currentNavTag = "Important";
         private int? _currentListId = null;
+        private DateTimeOffset? _pendingDueDate = null;
         private List<TaskList> _standaloneLists = new List<TaskList>();
-
-        private ObservableCollection<NotepadTab> _notepadTabs = new ObservableCollection<NotepadTab>();
-        private NotepadTab? _currentNotepadTab = null;
-        private DispatcherTimer? _notepadSaveTimer;
-        private bool _isNotepadInitialized = false;
-        private bool _isNotepadTabSwitching = false;
 
         private SystemTrayService? _trayService;
         private bool _isExiting = false;
-
-        private bool _isPreviewMode = true;
-        private bool _webViewReady = false;
 
         public ObservableCollection<TaskItem> Tasks { get; } = new ObservableCollection<TaskItem>();
         public ObservableCollection<TaskItem> CompletedTasks { get; } = new ObservableCollection<TaskItem>();
@@ -70,7 +66,37 @@ namespace Todo
             InitializeCalendarBounds();
             LoadCustomGroups();
 
-            _trayService = new SystemTrayService(this);
+            // 全局快捷键：Ctrl+Shift+P 强制退出固定模式（兜底恢复手段）
+            RootGrid.KeyDown += (sender, e) =>
+            {
+                if (e.Key == Windows.System.VirtualKey.P &&
+                    IsCtrlPressed() &&
+                    IsShiftPressed() &&
+                    _isDesktopMode)
+                {
+                    ToggleDesktopMode_Click(this, new RoutedEventArgs());
+                    e.Handled = true;
+                }
+
+                // 记事本快捷键: Escape 切换预览, Ctrl+S 保存
+                if (_currentNavTag == "Notepad" && !_isPreviewMode)
+                {
+                    if (e.Key == Windows.System.VirtualKey.Escape)
+                    {
+                        SwitchToPreviewMode();
+                        e.Handled = true;
+                    }
+                    else if (e.Key == Windows.System.VirtualKey.S && IsCtrlPressed())
+                    {
+                        SaveCurrentNotepadTab();
+                        NotepadSaveToFile();
+                        RenderMarkdownPreview();
+                        e.Handled = true;
+                    }
+                }
+            };
+
+            _trayService = new SystemTrayService(this, RootGrid);
             _trayService.ExitRequested += () =>
             {
                 _isExiting = true;
@@ -105,10 +131,16 @@ namespace Todo
             {
                 SaveCurrentNotepadTab();
             }
+
+            // 清理桌面固定模式资源
+            WindowHelper.ShutdownDesktopPin();
         }
 
         private void LoadTasksForCurrentNav()
         {
+            // 先自动完成截止日期已过的任务
+            AutoCompleteOverdueTasks();
+
             Tasks.Clear();
             CompletedTasks.Clear();
             _borderSubscriptions.Clear();
@@ -210,6 +242,64 @@ namespace Todo
             }
             _standaloneLists = _dbService.GetStandaloneLists();
             RefreshCustomNavigation();
+        }
+
+        private void AutoCompleteOverdueTasks()
+        {
+            try
+            {
+                var overdueTasks = _dbService.GetOverdueUncheckedTasks();
+                foreach (var task in overdueTasks)
+                {
+                    System.Diagnostics.Debug.WriteLine($"MainWindow: Auto-completing overdue task {task.Id} - {task.Title}");
+                    _dbService.UpdateTaskAutoCompleted(task.Id);
+                    ReminderService.Instance.RemoveScheduledReminderNotifications(task.Id);
+
+                    var recurrence = _dbService.GetRecurrenceForTask(task.Id);
+                    if (recurrence != null && recurrence.RecurrenceType != RecurrenceType.None)
+                    {
+                        var sourceDueDate = task.DueDate ?? recurrence.BaseDate;
+                        var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate);
+                        var newTask = _dbService.AddTask(task.Title, newDueDate, null, task.ListId);
+                        newTask.Description = task.Description;
+                        _dbService.UpdateTask(newTask);
+
+                        recurrence.NextDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, newDueDate);
+                        _dbService.UpdateRecurrence(recurrence);
+
+                        var oldReminders = _dbService.GetRemindersForTask(task.Id);
+                        foreach (var oldReminder in oldReminders)
+                        {
+                            if (!oldReminder.ReminderDateTime.HasValue) continue;
+                            var dayOffset = (oldReminder.ReminderDateTime.Value.Date - sourceDueDate.Date).Days;
+                            var newReminderDate = newDueDate.Date.AddDays(dayOffset).Add(oldReminder.ReminderDateTime.Value.TimeOfDay);
+                            if (newReminderDate <= DateTime.Now) continue;
+
+                            var newReminder = new Reminder
+                            {
+                                TaskId = newTask.Id,
+                                ReminderType = oldReminder.ReminderType,
+                                ReminderDateTime = newReminderDate,
+                                EnableMultiDayReminders = oldReminder.EnableMultiDayReminders,
+                                SameDayIntervalMinutes = oldReminder.SameDayIntervalMinutes,
+                                CustomDays = oldReminder.CustomDays,
+                                IsRecurring = oldReminder.IsRecurring,
+                                RecurringInterval = oldReminder.RecurringInterval
+                            };
+                            _dbService.AddReminderWithDetails(newReminder);
+                        }
+
+                        var newRecurrence = _dbService.AddRecurrence(newTask.Id, recurrence.RecurrenceType, newDueDate);
+                        newRecurrence.NextDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, newDueDate);
+                        _dbService.UpdateRecurrence(newRecurrence);
+                        ReminderService.Instance.ScheduleReminderNotificationsForTask(newTask.Id);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"AutoCompleteOverdueTasks error: {ex.Message}");
+            }
         }
 
         private void RefreshCustomNavigation()
@@ -495,6 +585,16 @@ namespace Todo
             }
         }
 
+        private void NavView_PaneOpened(NavigationView sender, object args)
+        {
+            PaneFooterGrid.Visibility = Visibility.Visible;
+        }
+
+        private void NavView_PaneClosed(NavigationView sender, object args)
+        {
+            PaneFooterGrid.Visibility = Visibility.Collapsed;
+        }
+
         private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
             if (_isDrawerOpen)
@@ -590,107 +690,6 @@ namespace Todo
                         LoadTasksForCurrentNav();
                         break;
                 }
-            }
-        }
-
-        private void ShowTaskListContent()
-        {
-            System.Diagnostics.Debug.WriteLine($"[Notepad] ShowTaskListContent: _currentNavTag={_currentNavTag}");
-            if (_currentNavTag == "Notepad")
-            {
-                SaveCurrentNotepadTab();
-            }
-            PageHeader.Visibility = Visibility.Visible;
-            NotepadContent.Visibility = Visibility.Collapsed;
-            TaskListScrollViewer.Visibility = Visibility.Visible;
-            AddTaskBar.Visibility = Visibility.Visible;
-        }
-
-        private void ShowNotepadContent()
-        {
-            System.Diagnostics.Debug.WriteLine($"[Notepad] ShowNotepadContent: _isNotepadInitialized={_isNotepadInitialized}");
-            PageHeader.Visibility = Visibility.Collapsed;
-            NotepadContent.Visibility = Visibility.Visible;
-            TaskListScrollViewer.Visibility = Visibility.Collapsed;
-            AddTaskBar.Visibility = Visibility.Collapsed;
-
-            if (!_isNotepadInitialized)
-            {
-                InitializeNotepad();
-                InitializeNotepadPreview();
-            }
-        }
-
-        private void InitializeNotepad()
-        {
-            _isNotepadInitialized = true;
-            var tabs = _dbService.GetNotepadTabs();
-            _notepadTabs.Clear();
-            NotepadTabView.TabItems.Clear();
-
-            foreach (var tab in tabs)
-            {
-                _notepadTabs.Add(tab);
-                NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
-            }
-
-            if (_notepadTabs.Count == 0)
-            {
-                AddNotepadTab("未命名");
-            }
-            else
-            {
-                NotepadTabView.SelectedIndex = 0;
-            }
-        }
-
-        private TabViewItem CreateTabViewItem(NotepadTab tab)
-        {
-            var tabItem = new TabViewItem
-            {
-                Header = tab.Title,
-                Tag = tab,
-                IsClosable = true
-            };
-            tab.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(NotepadTab.Title))
-                {
-                    tabItem.Header = tab.Title;
-                }
-            };
-            return tabItem;
-        }
-
-        private void AddNotepadTab(string title)
-        {
-            var tab = _dbService.AddNotepadTab(title);
-            _notepadTabs.Add(tab);
-            NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
-            NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
-        }
-
-        private void SaveCurrentNotepadTab()
-        {
-            System.Diagnostics.Debug.WriteLine($"[Notepad] SaveCurrentNotepadTab: _currentNotepadTab={_currentNotepadTab?.Id}, editorText.Length={NotepadEditor.Text?.Length ?? 0}");
-            if (_currentNotepadTab != null)
-            {
-                _currentNotepadTab.Content = NotepadEditor.Text ?? "";
-                _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, NotepadEditor.Text ?? "");
-                System.Diagnostics.Debug.WriteLine($"[Notepad] SaveCurrentNotepadTab: 已保存 TabId={_currentNotepadTab.Id}, 内容长度={NotepadEditor.Text?.Length ?? 0}");
-
-                var firstLine = NotepadEditor.Text?.Split('\n').FirstOrDefault()?.TrimStart('#', ' ', '\t');
-                if (!string.IsNullOrWhiteSpace(firstLine) && _currentNotepadTab.Title == "未命名")
-                {
-                    var newTitle = firstLine.Length > 20 ? firstLine.Substring(0, 20) + "..." : firstLine;
-                    _currentNotepadTab.Title = newTitle;
-                    _dbService.UpdateNotepadTabTitle(_currentNotepadTab.Id, newTitle);
-                    System.Diagnostics.Debug.WriteLine($"[Notepad] SaveCurrentNotepadTab: 自动重命名 TabId={_currentNotepadTab.Id}, newTitle={newTitle}");
-                }
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("[Notepad] SaveCurrentNotepadTab: _currentNotepadTab 为 null，跳过保存");
             }
         }
 
@@ -868,7 +867,13 @@ namespace Todo
 
             _selectedTask = task;
             DetailTitle.Text = task.Title;
-            DetailDescription.Text = task.Description;
+            // 将描述中的 [title](url) 转为纯标题显示
+            var (displayText, links) = StripLinksForDisplay(task.Description ?? "");
+            _isUpdatingDescriptionText = true;
+            DetailDescription.Text = displayText;
+            _descriptionLinks = links;
+            _previousDescriptionText = displayText;
+            _isUpdatingDescriptionText = false;
             
             var subTasks = _dbService.GetSubTasksForTask(task.Id);
             _selectedTask.SubTasks.Clear();
@@ -1084,23 +1089,259 @@ namespace Todo
         
         private void DetailDescription_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (_selectedTask != null)
+            if (_isUpdatingDescriptionText) return;
+            if (_selectedTask == null) return;
+
+            // 检测是否有人工粘贴了 [title](url) 格式，自动转为纯标题
+            var (displayText, links) = StripLinksForDisplay(DetailDescription.Text);
+            if (displayText != DetailDescription.Text)
             {
-                _selectedTask.Description = DetailDescription.Text;
-                
-                _saveDescriptionTimer?.Stop();
-                _saveDescriptionTimer = new DispatcherTimer();
-                _saveDescriptionTimer.Interval = TimeSpan.FromMilliseconds(300);
-                _saveDescriptionTimer.Tick += (s, args) =>
+                _isUpdatingDescriptionText = true;
+                DetailDescription.Text = displayText;
+                DetailDescription.SelectionStart = displayText.Length;
+                _isUpdatingDescriptionText = false;
+            }
+            _descriptionLinks = links;
+
+            // 根据文本变更调整链接位置
+            if (!string.IsNullOrEmpty(_previousDescriptionText))
+            {
+                var delta = displayText.Length - _previousDescriptionText.Length;
+                var changePos = DetailDescription.SelectionStart;
+                if (delta != 0)
                 {
-                    _saveDescriptionTimer?.Stop();
+                    for (int i = 0; i < _descriptionLinks.Count; i++)
+                    {
+                        var l = _descriptionLinks[i];
+                        if (l.displayIndex >= changePos)
+                        {
+                            _descriptionLinks[i] = (l.title, l.url, l.displayIndex + delta, l.displayLength);
+                        }
+                    }
+                }
+            }
+            _previousDescriptionText = displayText;
+
+            // 保存时用带链接的完整文本
+            var rawText = ReconstructLinksForStorage(displayText, links);
+            _selectedTask.Description = rawText;
+
+            _saveDescriptionTimer?.Stop();
+            _saveDescriptionTimer = new DispatcherTimer();
+            _saveDescriptionTimer.Interval = TimeSpan.FromMilliseconds(300);
+            _saveDescriptionTimer.Tick += (s, args) =>
+            {
+                _saveDescriptionTimer?.Stop();
+                if (_selectedTask != null)
+                {
+                    _dbService.UpdateTask(_selectedTask);
+                }
+            };
+            _saveDescriptionTimer.Start();
+        }
+
+        private async void InsertLink_Click(object sender, RoutedEventArgs e)
+        {
+            var urlBox = new TextBox
+            {
+                PlaceholderText = "https://...",
+                Header = "链接地址"
+            };
+            var titleBox = new TextBox
+            {
+                PlaceholderText = "链接显示文字",
+                Header = "标题"
+            };
+
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(urlBox);
+            panel.Children.Add(titleBox);
+
+            var dialog = new ContentDialog
+            {
+                Title = "插入链接",
+                Content = panel,
+                PrimaryButtonText = "插入",
+                CloseButtonText = "取消",
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                var url = urlBox.Text?.Trim();
+                var title = titleBox.Text?.Trim();
+
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    if (string.IsNullOrWhiteSpace(title))
+                        title = url;
+
+                    var caretIndex = DetailDescription.SelectionStart;
+                    var displayText = DetailDescription.Text;
+
+                    // 在显示文本中只插入标题
+                    _isUpdatingDescriptionText = true;
+                    DetailDescription.Text = displayText.Insert(caretIndex, title);
+                    DetailDescription.SelectionStart = caretIndex + title.Length;
+                    _isUpdatingDescriptionText = false;
+
+                    // 追踪链接映射
+                    _descriptionLinks.Add((title, url, caretIndex, title.Length));
+                    // 调整后续链接的位置
+                    for (int i = 0; i < _descriptionLinks.Count - 1; i++)
+                    {
+                        var link = _descriptionLinks[i];
+                        if (link.displayIndex >= caretIndex)
+                        {
+                            _descriptionLinks[i] = (link.title, link.url, link.displayIndex + title.Length, link.displayLength);
+                        }
+                    }
+
+                    // 同步到 _selectedTask
                     if (_selectedTask != null)
                     {
-                        _dbService.UpdateTask(_selectedTask);
+                        _selectedTask.Description = ReconstructLinksForStorage(DetailDescription.Text, _descriptionLinks);
                     }
-                };
-                _saveDescriptionTimer.Start();
+
+                    DetailDescription.Focus(FocusState.Programmatic);
+                }
             }
+        }
+
+        private void DetailDescription_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            // Ctrl+Enter: 打开光标处的链接
+            if (e.Key == Windows.System.VirtualKey.Enter && IsCtrlPressed())
+            {
+                var link = GetLinkAtPosition(DetailDescription.SelectionStart);
+                if (link != null)
+                {
+                    OpenUrl(link.Value.url);
+                    e.Handled = true;
+                }
+            }
+        }
+
+        private void DetailDescription_RightTapped(object sender, RightTappedRoutedEventArgs e)
+        {
+            var link = GetLinkAtPosition(DetailDescription.SelectionStart);
+            if (link == null) return;
+
+            var menu = new MenuFlyout();
+
+            var openItem = new MenuFlyoutItem
+            {
+                Text = "打开链接",
+                Icon = new FontIcon { Glyph = "" }
+            };
+            var url = link.Value.url;
+            openItem.Click += (s, args) => OpenUrl(url);
+            menu.Items.Add(openItem);
+
+            var copyItem = new MenuFlyoutItem
+            {
+                Text = "复制链接",
+                Icon = new SymbolIcon(Symbol.Copy)
+            };
+            copyItem.Click += (s, args) =>
+            {
+                try
+                {
+                    var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                    dp.SetText(url);
+                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Copy link error: {ex.Message}");
+                }
+            };
+            menu.Items.Add(copyItem);
+
+            menu.ShowAt(DetailDescription, e.GetPosition(DetailDescription));
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// 获取光标位置所在的链接。返回 (title, url) 或 null。
+        /// </summary>
+        private (string title, string url)? GetLinkAtPosition(int caretIndex)
+        {
+            foreach (var link in _descriptionLinks)
+            {
+                if (caretIndex > link.displayIndex && caretIndex <= link.displayIndex + link.displayLength)
+                {
+                    return (link.title, link.url);
+                }
+            }
+            return null;
+        }
+
+        private static async void OpenUrl(string url)
+        {
+            try
+            {
+                var uri = new Uri(url);
+                await Windows.System.Launcher.LaunchUriAsync(uri);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"OpenUrl error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 从存储格式 (含 [title](url)) 转为显示格式 (纯标题)，
+        /// 同时返回链接映射列表。
+        /// </summary>
+        private static (string displayText, List<(string title, string url, int displayIndex, int displayLength)> links)
+            StripLinksForDisplay(string rawText)
+        {
+            var links = new List<(string title, string url, int displayIndex, int displayLength)>();
+            if (string.IsNullOrEmpty(rawText))
+                return ("", links);
+
+            var displayText = "";
+            var regex = new System.Text.RegularExpressions.Regex(@"\[(.+?)\]\((.+?)\)");
+            var lastIndex = 0;
+
+            foreach (System.Text.RegularExpressions.Match match in regex.Matches(rawText))
+            {
+                displayText += rawText.Substring(lastIndex, match.Index - lastIndex);
+                var title = match.Groups[1].Value;
+                var url = match.Groups[2].Value;
+                links.Add((title, url, displayText.Length, title.Length));
+                displayText += title;
+                lastIndex = match.Index + match.Length;
+            }
+            displayText += rawText.Substring(lastIndex);
+
+            return (displayText, links);
+        }
+
+        /// <summary>
+        /// 从显示文本 + 链接映射重建存储格式 (含 [title](url))。
+        /// </summary>
+        private static string ReconstructLinksForStorage(string displayText,
+            List<(string title, string url, int displayIndex, int displayLength)> links)
+        {
+            if (links.Count == 0) return displayText;
+
+            // 按位置排序 (从后往前插入，避免坐标偏移)
+            var sorted = links.OrderBy(l => l.displayIndex).ToList();
+            var result = "";
+            var cursor = 0;
+
+            foreach (var link in sorted)
+            {
+                if (link.displayIndex < cursor) continue; // 跳过重叠/无效链接
+                result += displayText.Substring(cursor, link.displayIndex - cursor);
+                result += $"[{link.title}]({link.url})";
+                cursor = link.displayIndex + link.displayLength;
+            }
+            result += displayText.Substring(cursor);
+            return result;
         }
 
         private void ScrollToElement(FrameworkElement element)
@@ -1139,6 +1380,12 @@ namespace Todo
             {
                 task.IsChecked = true;
                 task.CompletedAt = DateTime.Now;
+                // 从数据库中刷新 IsAutoCompleted 状态
+                var dbTask = _dbService.GetTaskById(taskId);
+                if (dbTask != null)
+                {
+                    task.IsAutoCompleted = dbTask.IsAutoCompleted;
+                }
                 Tasks.Remove(task);
                 if (!CompletedTasks.Contains(task))
                 {
@@ -1265,6 +1512,7 @@ namespace Todo
             AddTaskButton.Visibility = Visibility.Collapsed;
             AddTaskInputArea.Visibility = Visibility.Visible;
             AddTaskTextBox.Text = "";
+            ResetPendingDueDate();
             AddTaskTextBox.Focus(FocusState.Programmatic);
         }
 
@@ -1315,7 +1563,7 @@ namespace Todo
                         break;
                 }
 
-                var newTask = _dbService.AddTask(AddTaskTextBox.Text.Trim(), DateTime.Now, null, listId, isImportant);
+                var newTask = _dbService.AddTask(AddTaskTextBox.Text.Trim(), _pendingDueDate?.DateTime, null, listId, isImportant);
                 var subTasks = _dbService.GetSubTasksForTask(newTask.Id);
                 foreach (var subTask in subTasks)
                 {
@@ -1331,6 +1579,35 @@ namespace Todo
             AddTaskInputArea.Visibility = Visibility.Collapsed;
             AddTaskButton.Visibility = Visibility.Visible;
             AddTaskTextBox.Text = "";
+            ResetPendingDueDate();
+        }
+
+        private void ResetPendingDueDate()
+        {
+            _pendingDueDate = null;
+            AddTaskDueDateIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 85, 85, 85));
+            ToolTipService.SetToolTip(AddTaskDueDateButton, "设置截止日期");
+        }
+
+        private void AddTaskDueDate_Click(object sender, RoutedEventArgs e)
+        {
+            // Flyout 会自动打开，无需额外处理
+        }
+
+        private void AddTaskCalendarView_SelectedDatesChanged(CalendarView sender, CalendarViewSelectedDatesChangedEventArgs args)
+        {
+            if (sender.SelectedDates.Count > 0)
+            {
+                _pendingDueDate = sender.SelectedDates[0];
+                AddTaskDueDateIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212));
+                ToolTipService.SetToolTip(AddTaskDueDateButton, $"截止日期: {_pendingDueDate.Value:yyyy/MM/dd}");
+            }
+        }
+
+        private void AddTaskClearDate_Click(object sender, RoutedEventArgs e)
+        {
+            ResetPendingDueDate();
+            AddTaskCalendarView.SelectedDates.Clear();
         }
 
         private void ToggleCompleted_Click(object sender, RoutedEventArgs e)
@@ -1669,9 +1946,23 @@ namespace Todo
                     ReminderCalendarView.SelectedDates.Clear();
                     RefreshReminderSelectedDatesText();
                 }
-                
+
                 if (_selectedTask != null)
                 {
+                    // 提醒日历范围：今天 → 任务截止日
+                    if (ReminderCalendarView != null)
+                    {
+                        if (_selectedTask.DueDate.HasValue && _selectedTask.DueDate.Value.Date >= DateTime.Today)
+                        {
+                            ReminderCalendarView.MaxDate = _selectedTask.DueDate.Value;
+                            ReminderCalendarView.SetDisplayDate(_selectedTask.DueDate.Value);
+                        }
+                        else
+                        {
+                            ReminderCalendarView.MaxDate = DateTimeOffset.MaxValue; // 无截止日则不限制上限
+                        }
+                    }
+
                     var reminders = _dbService.GetRemindersForTask(_selectedTask.Id);
                     if (reminders.Count > 0 && ReminderCalendarView != null)
                     {
@@ -2084,295 +2375,17 @@ namespace Todo
             this.EndAnimation(toWidth, toHeight);
         }
 
-        private void NotepadTabView_AddTabClick(TabView sender, object args)
-        {
-            AddNotepadTab("未命名");
-        }
+       
 
-        private void NotepadTabView_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            System.Diagnostics.Debug.WriteLine($"[Notepad] SelectionChanged: SelectedItem={NotepadTabView.SelectedItem?.GetType().Name}, _currentNotepadTab={_currentNotepadTab?.Id}");
-            if (NotepadTabView.SelectedItem is TabViewItem tabItem && tabItem.Tag is NotepadTab tab)
-            {
-                _isNotepadTabSwitching = true;
+        #region Keyboard Helper
 
-                SaveCurrentNotepadTab();
+        [DllImport("user32.dll")]
+        private static extern short GetKeyState(int nVirtKey);
 
-                _currentNotepadTab = tab;
-                NotepadEditor.Text = tab.Content;
-                System.Diagnostics.Debug.WriteLine($"[Notepad] SelectionChanged: 切换到 TabId={tab.Id}, 内容长度={tab.Content?.Length ?? 0}");
+        private static bool IsCtrlPressed() => (GetKeyState(0x11) & 0x8000) != 0;
+        private static bool IsShiftPressed() => (GetKeyState(0x10) & 0x8000) != 0;
 
-                if (_isPreviewMode)
-                {
-                    RenderMarkdownPreview();
-                }
+        #endregion
 
-                _isNotepadTabSwitching = false;
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"[Notepad] SelectionChanged: SelectedItem 不是 TabViewItem 或 Tag 不是 NotepadTab");
-            }
-        }
-
-        private void NotepadTabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
-        {
-            if (args.Item is TabViewItem tabItem && tabItem.Tag is NotepadTab tab)
-            {
-                _dbService.DeleteNotepadTab(tab.Id);
-                _notepadTabs.Remove(tab);
-                NotepadTabView.TabItems.Remove(tabItem);
-
-                if (_currentNotepadTab == tab)
-                {
-                    _currentNotepadTab = null;
-                }
-
-                if (_notepadTabs.Count == 0)
-                {
-                    AddNotepadTab("未命名");
-                }
-            }
-        }
-
-        private void NotepadEditor_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            System.Diagnostics.Debug.WriteLine($"[Notepad] TextChanged: _isNotepadTabSwitching={_isNotepadTabSwitching}, _currentNotepadTab={_currentNotepadTab?.Id}, text.Length={NotepadEditor.Text?.Length ?? 0}");
-            if (_isNotepadTabSwitching) return;
-
-            if (_notepadSaveTimer == null)
-            {
-                _notepadSaveTimer = new DispatcherTimer();
-                _notepadSaveTimer.Interval = TimeSpan.FromMilliseconds(2000);
-                _notepadSaveTimer.Tick += (s, args) =>
-                {
-                    _notepadSaveTimer?.Stop();
-                    System.Diagnostics.Debug.WriteLine("[Notepad] AutoSave timer tick: 触发自动保存");
-                    SaveCurrentNotepadTab();
-                };
-            }
-
-            _notepadSaveTimer.Stop();
-            _notepadSaveTimer.Start();
-        }
-
-        private void NotepadEditor_KeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
-            bool isCtrlDown = ctrl.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-
-            if (isCtrlDown && e.Key == Windows.System.VirtualKey.S)
-            {
-                System.Diagnostics.Debug.WriteLine("[Notepad] Ctrl+S: 触发手动保存");
-                SaveCurrentNotepadTab();
-                RenderMarkdownPreview();
-                e.Handled = true;
-            }
-            else if (e.Key == Windows.System.VirtualKey.Escape)
-            {
-                SwitchToPreviewMode();
-                e.Handled = true;
-            }
-        }
-
-        private void InsertMarkdownSyntax(string prefix, string suffix)
-        {
-            var textBox = NotepadEditor;
-            var selectedText = textBox.SelectedText;
-            var start = textBox.SelectionStart;
-
-            if (!string.IsNullOrEmpty(selectedText))
-            {
-                var newText = prefix + selectedText + suffix;
-                textBox.Text = textBox.Text.Remove(start, selectedText.Length).Insert(start, newText);
-                textBox.SelectionStart = start + prefix.Length;
-                textBox.SelectionLength = selectedText.Length;
-            }
-            else
-            {
-                var placeholder = prefix + "文本" + suffix;
-                textBox.Text = textBox.Text.Insert(start, placeholder);
-                textBox.SelectionStart = start + prefix.Length;
-                textBox.SelectionLength = 2;
-            }
-        }
-
-        private void NotepadBold_Click(object sender, RoutedEventArgs e)
-        {
-            InsertMarkdownSyntax("**", "**");
-        }
-
-        private void NotepadItalic_Click(object sender, RoutedEventArgs e)
-        {
-            InsertMarkdownSyntax("*", "*");
-        }
-
-        private void NotepadUnderline_Click(object sender, RoutedEventArgs e)
-        {
-            InsertMarkdownSyntax("<u>", "</u>");
-        }
-
-        private void NotepadStrikethrough_Click(object sender, RoutedEventArgs e)
-        {
-            InsertMarkdownSyntax("~~", "~~");
-        }
-
-        private void NotepadOrderedList_Click(object sender, RoutedEventArgs e)
-        {
-            var textBox = NotepadEditor;
-            var start = textBox.SelectionStart;
-
-            var lineStart = textBox.Text.LastIndexOf('\n', start - 1) + 1;
-            if (lineStart < 0) lineStart = 0;
-
-            textBox.Text = textBox.Text.Insert(lineStart, "1. ");
-            textBox.SelectionStart = lineStart + 3;
-        }
-
-        private async void NotepadOpen_Click(object sender, RoutedEventArgs e)
-        {
-            var picker = new FileOpenPicker();
-            picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-            picker.FileTypeFilter.Add(".md");
-            picker.FileTypeFilter.Add(".txt");
-
-            var hwnd = WindowNative.GetWindowHandle(this);
-            InitializeWithWindow.Initialize(picker, hwnd);
-
-            var file = await picker.PickSingleFileAsync();
-            if (file != null)
-            {
-                var content = await FileIO.ReadTextAsync(file);
-                var tab = _dbService.AddNotepadTab(file.Name);
-                tab.Content = content;
-                tab.FilePath = file.Path;
-                _dbService.UpdateNotepadTabContent(tab.Id, content);
-                _dbService.UpdateNotepadTabFilePath(tab.Id, file.Path);
-
-                _notepadTabs.Add(tab);
-                NotepadTabView.SelectedIndex = _notepadTabs.Count - 1;
-            }
-        }
-
-        private async void NotepadSaveAs_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentNotepadTab == null) return;
-
-            var picker = new FileSavePicker();
-            picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-            picker.FileTypeChoices.Add("Markdown", new List<string> { ".md" });
-            picker.FileTypeChoices.Add("文本文件", new List<string> { ".txt" });
-            picker.SuggestedFileName = _currentNotepadTab.Title;
-
-            var hwnd = WindowNative.GetWindowHandle(this);
-            InitializeWithWindow.Initialize(picker, hwnd);
-
-            var file = await picker.PickSaveFileAsync();
-            if (file != null)
-            {
-                await FileIO.WriteTextAsync(file, NotepadEditor.Text);
-                _currentNotepadTab.FilePath = file.Path;
-                _currentNotepadTab.Title = file.Name;
-                _dbService.UpdateNotepadTabFilePath(_currentNotepadTab.Id, file.Path);
-                _dbService.UpdateNotepadTabTitle(_currentNotepadTab.Id, file.Name);
-            }
-        }
-
-        private async void InitializeNotepadPreview()
-        {
-            if (_webViewReady) return;
-            await NotepadPreview.EnsureCoreWebView2Async();
-            _webViewReady = true;
-            RenderMarkdownPreview();
-        }
-
-        private void RenderMarkdownPreview()
-        {
-            if (!_webViewReady) return;
-
-            var markdown = _currentNotepadTab?.Content ?? "";
-            var html = Markdown.ToHtml(string.IsNullOrEmpty(markdown) ? "" : markdown);
-
-            var styledHtml = $@"<!DOCTYPE html>
-<html>
-<head>
-<style>
-  body {{
-    background: #161616;
-    color: #e0e0e0;
-    font-family: -apple-system, Segoe UI, sans-serif;
-    font-size: 14px;
-    padding: 24px 32px;
-    line-height: 1.7;
-    margin: 0;
-  }}
-  h1, h2, h3, h4 {{ color: #fff; margin-top: 1.2em; margin-bottom: 0.4em; }}
-  h1 {{ font-size: 1.8em; border-bottom: 1px solid #333; padding-bottom: 8px; }}
-  h2 {{ font-size: 1.4em; }}
-  code {{ background: #2a2a2a; padding: 2px 6px; border-radius: 3px; font-family: Consolas, monospace; font-size: 13px; }}
-  pre {{ background: #2a2a2a; padding: 14px; border-radius: 6px; overflow-x: auto; }}
-  pre code {{ background: none; padding: 0; }}
-  blockquote {{ border-left: 3px solid #0078d4; padding-left: 14px; color: #aaa; margin-left: 0; }}
-  a {{ color: #0078d4; }}
-  table {{ border-collapse: collapse; width: 100%; }}
-  th, td {{ border: 1px solid #333; padding: 8px 12px; text-align: left; }}
-  th {{ background: #2a2a2a; }}
-  img {{ max-width: 100%; }}
-  hr {{ border: none; border-top: 1px solid #333; margin: 20px 0; }}
-  ul, ol {{ padding-left: 24px; }}
-  li {{ margin: 4px 0; }}
-  p {{ margin: 0.6em 0; }}
-  strong {{ color: #fff; }}
-  del {{ color: #888; }}
-</style>
-</head>
-<body>
-  {html}
-</body>
-</html>";
-
-            NotepadPreview.NavigateToString(styledHtml);
-        }
-
-        private void NotepadPreviewToggle_Click(object sender, RoutedEventArgs e)
-        {
-            if (_isPreviewMode)
-            {
-                SwitchToEditMode();
-            }
-            else
-            {
-                SwitchToPreviewMode();
-            }
-        }
-
-        private void NotepadPreview_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
-        {
-            if (_isPreviewMode)
-            {
-                SwitchToEditMode();
-            }
-        }
-
-        private void SwitchToEditMode()
-        {
-            _isPreviewMode = false;
-            NotepadPreview.Visibility = Visibility.Collapsed;
-            NotepadEditor.Visibility = Visibility.Visible;
-            NotepadEditor.Focus(FocusState.Programmatic);
-            NotepadPreviewToggleIcon.Glyph = "";
-            NotepadPreviewToggleText.Text = "预览";
-        }
-
-        private void SwitchToPreviewMode()
-        {
-            SaveCurrentNotepadTab();
-            RenderMarkdownPreview();
-            _isPreviewMode = true;
-            NotepadEditor.Visibility = Visibility.Collapsed;
-            NotepadPreview.Visibility = Visibility.Visible;
-            NotepadPreviewToggleIcon.Glyph = "";
-            NotepadPreviewToggleText.Text = "编辑";
-        }
     }
 }

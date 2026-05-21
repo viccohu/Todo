@@ -150,7 +150,10 @@ namespace Todo.Services
             {
                 var now = DateTime.Now;
                 System.Diagnostics.Debug.WriteLine($"Checking reminders at {now:HH:mm:ss}");
-                
+
+                // 自动完成截止日期已过的任务
+                AutoCompleteOverdueTasks();
+
                 var lookbackWindow = _hasCompletedInitialReminderCheck ? ReminderCatchUpWindow : TimeSpan.Zero;
                 var dueReminders = _dbService.GetDueReminders(now, lookbackWindow);
                 _hasCompletedInitialReminderCheck = true;
@@ -190,6 +193,71 @@ namespace Todo.Services
             }
         }
         
+        private void AutoCompleteOverdueTasks()
+        {
+            try
+            {
+                var overdueTasks = _dbService.GetOverdueUncheckedTasks();
+                foreach (var task in overdueTasks)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Auto-completing overdue task: {task.Id} - {task.Title}, DueDate={task.DueDate}");
+                    _dbService.UpdateTaskAutoCompleted(task.Id);
+                    RemoveScheduledReminderNotifications(task.Id);
+
+                    // 处理重复任务的下一期
+                    var recurrence = _dbService.GetRecurrenceForTask(task.Id);
+                    if (recurrence != null && recurrence.RecurrenceType != RecurrenceType.None)
+                    {
+                        var sourceDueDate = task.DueDate ?? recurrence.BaseDate;
+                        var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate);
+                        var newTask = _dbService.AddTask(task.Title, newDueDate, null, task.ListId);
+                        newTask.Description = task.Description;
+                        _dbService.UpdateTask(newTask);
+
+                        recurrence.NextDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, newDueDate);
+                        _dbService.UpdateRecurrence(recurrence);
+
+                        var oldReminders = _dbService.GetRemindersForTask(task.Id);
+                        foreach (var oldReminder in oldReminders)
+                        {
+                            if (!oldReminder.ReminderDateTime.HasValue) continue;
+                            var dayOffset = (oldReminder.ReminderDateTime.Value.Date - sourceDueDate.Date).Days;
+                            var newReminderDate = newDueDate.Date.AddDays(dayOffset).Add(oldReminder.ReminderDateTime.Value.TimeOfDay);
+                            if (newReminderDate <= DateTime.Now) continue;
+
+                            var newReminder = new Reminder
+                            {
+                                TaskId = newTask.Id,
+                                ReminderType = oldReminder.ReminderType,
+                                ReminderDateTime = newReminderDate,
+                                EnableMultiDayReminders = oldReminder.EnableMultiDayReminders,
+                                SameDayIntervalMinutes = oldReminder.SameDayIntervalMinutes,
+                                CustomDays = oldReminder.CustomDays,
+                                IsRecurring = oldReminder.IsRecurring,
+                                RecurringInterval = oldReminder.RecurringInterval
+                            };
+                            _dbService.AddReminderWithDetails(newReminder);
+                        }
+
+                        var newRecurrence = _dbService.AddRecurrence(newTask.Id, recurrence.RecurrenceType, newDueDate);
+                        newRecurrence.NextDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, newDueDate);
+                        _dbService.UpdateRecurrence(newRecurrence);
+                        ScheduleReminderNotificationsForTask(newTask.Id);
+
+                        TaskCompletedFromNotification?.Invoke(this, new TaskCompletedFromNotificationEventArgs(task.Id, newTask.Id));
+                    }
+                    else
+                    {
+                        TaskCompletedFromNotification?.Invoke(this, new TaskCompletedFromNotificationEventArgs(task.Id, null));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"AutoCompleteOverdueTasks error: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
         private void ScheduleSameDayReminders(Reminder reminder)
         {
             if (!reminder.ReminderDateTime.HasValue || reminder.SameDayIntervalMinutes <= 0)

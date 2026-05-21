@@ -3,89 +3,25 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.Storage;
 using WinRT.Interop;
-using Markdig;
-using TextControlBoxNS;
 using Todo.Models;
 
 namespace Todo
 {
     public sealed partial class MainWindow
     {
-        // ── Notepad fields ──
-
         private ObservableCollection<NotepadTab> _notepadTabs = new ObservableCollection<NotepadTab>();
         private NotepadTab? _currentNotepadTab = null;
         private DispatcherTimer? _notepadSaveTimer;
         private bool _isNotepadInitialized = false;
         private bool _isNotepadTabSwitching = false;
-
         private bool _isPreviewMode = true;
-        private bool _webViewReady = false;
-        private string _prevNotepadText = "";
-
-        private static readonly MarkdownPipeline _mdPipeline = new MarkdownPipelineBuilder()
-            .UseAdvancedExtensions()
-            .Build();
-
-        // ── Helpers: 获取当前选区范围 ──
-
-        private (int start, int length)? GetSelectionRange()
-        {
-            var sel = NotepadEditor.SelectedText;
-            if (string.IsNullOrEmpty(sel)) return null;
-            var text = NotepadEditor.GetText();
-            var ci = GetCursorCharIndex();
-            int idx = text.LastIndexOf(sel, Math.Min(ci, text.Length));
-            if (idx >= 0) return (idx, sel.Length);
-            idx = text.IndexOf(sel);
-            if (idx >= 0) return (idx, sel.Length);
-            return null;
-        }
-
-        // ── Helpers: 绝对字符索引 ↔ (行, 列) ──
-
-        private int CharIndexFromLineCol(string text, int line, int column)
-        {
-            int curLine = 0, curIdx = 0;
-            while (curIdx < text.Length && curLine < line)
-            {
-                if (text[curIdx] == '\n') curLine++;
-                curIdx++;
-            }
-            return Math.Min(curIdx + column, text.Length);
-        }
-
-        private (int line, int col) LineColFromCharIndex(string text, int charIndex)
-        {
-            int line = 0, col = 0;
-            for (int i = 0; i < Math.Min(charIndex, text.Length); i++)
-            {
-                if (text[i] == '\n') { line++; col = 0; }
-                else col++;
-            }
-            return (line, col);
-        }
-
-        private int GetCursorCharIndex()
-        {
-            var cp = NotepadEditor.CursorPosition;
-            return CharIndexFromLineCol(NotepadEditor.GetText(), cp.LineNumber, cp.CharacterPosition);
-        }
-
-        private void SetCursorCharIndex(int charIndex)
-        {
-            var (line, col) = LineColFromCharIndex(NotepadEditor.GetText(), charIndex);
-            NotepadEditor.SetCursorPosition(line, col);
-        }
-
-        // ── Navigation helpers ──
+        private DateTime _lastToolbarClick = DateTime.MinValue;
 
         private void ShowTaskListContent()
         {
@@ -103,15 +39,9 @@ namespace Todo
             NotepadContent.Visibility = Visibility.Visible;
             TaskListScrollViewer.Visibility = Visibility.Collapsed;
             AddTaskBar.Visibility = Visibility.Collapsed;
-
             if (!_isNotepadInitialized)
-            {
                 InitializeNotepad();
-                InitializeNotepadPreview();
-            }
         }
-
-        // ── Tab management ──
 
         private void InitializeNotepad()
         {
@@ -119,35 +49,26 @@ namespace Todo
             var tabs = _dbService.GetNotepadTabs();
             _notepadTabs.Clear();
             NotepadTabView.TabItems.Clear();
-
             foreach (var tab in tabs)
             {
                 _notepadTabs.Add(tab);
                 NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
             }
-
             if (_notepadTabs.Count == 0)
                 AddNotepadTab("未命名");
             else
-            {
                 NotepadTabView.SelectedIndex = 0;
-                NotepadEditor.EnableSyntaxHighlighting = true;
-                NotepadEditor.SelectSyntaxHighlightingById(SyntaxHighlightID.Markdown);
-                NotepadEditor.ShowLineNumbers = true;
-            }
 
-            // 轮询检测文本变化 (2 秒间隔)
             _notepadSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _notepadSaveTimer.Tick += (s, args) =>
             {
                 if (_isNotepadTabSwitching || _currentNotepadTab == null) return;
-                var currentText = NotepadEditor.GetText() ?? "";
-                if (currentText != _prevNotepadText)
+                if (_isPreviewMode) return;
+                var text = NotepadEditor.Text;
+                if (text != _currentNotepadTab.Content)
                 {
-                    HandleSmartListContinueOnTextChange(currentText);
-                    _currentNotepadTab.Content = currentText;
-                    _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, currentText);
-                    _prevNotepadText = currentText;
+                    _currentNotepadTab.Content = text;
+                    _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, text);
                 }
             };
             _notepadSaveTimer.Start();
@@ -155,48 +76,55 @@ namespace Todo
 
         private TabViewItem CreateTabViewItem(NotepadTab tab)
         {
-            var tabItem = new TabViewItem
-            {
-                Header = tab.Title,
-                Tag = tab,
-                IsClosable = true,
-                HorizontalContentAlignment = HorizontalAlignment.Center
-            };
-            tabItem.DoubleTapped += TabItem_DoubleTapped;
-            tab.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(NotepadTab.Title))
-                    tabItem.Header = tab.Title;
-            };
-            return tabItem;
-        }
-
-        private async void TabItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
-        {
-            if (sender is not TabViewItem tabItem || tabItem.Tag is not NotepadTab tab)
-                return;
-
-            var textBox = new TextBox
+            var header = new TextBlock
             {
                 Text = tab.Title,
-                SelectionStart = 0,
-                SelectionLength = tab.Title.Length
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204))
             };
+            var item = new TabViewItem { Header = header, Tag = tab };
+            item.DoubleTapped += TabItem_DoubleTapped;
+            return item;
+        }
 
-            var dialog = new ContentDialog
+        private void TabItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            if (sender is TabViewItem tvi && tvi.Tag is NotepadTab tab)
             {
-                Title = "重命名",
-                Content = textBox,
-                PrimaryButtonText = "确定",
-                CloseButtonText = "取消",
-                XamlRoot = this.Content.XamlRoot
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
-            {
-                tab.Title = textBox.Text.Trim();
-                _dbService.UpdateNotepadTabTitle(tab.Id, tab.Title);
+                var input = new TextBox
+                {
+                    Text = tab.Title, FontSize = 13, MinWidth = 60, MaxWidth = 160
+                };
+                tvi.Header = input;
+                input.Focus(FocusState.Programmatic);
+                input.SelectAll();
+                input.LostFocus += (s, args) =>
+                {
+                    var newTitle = input.Text.Trim();
+                    if (string.IsNullOrWhiteSpace(newTitle)) newTitle = tab.Title;
+                    tab.Title = newTitle;
+                    _dbService.UpdateNotepadTabTitle(tab.Id, newTitle);
+                    tvi.Header = new TextBlock
+                    {
+                        Text = newTitle, FontSize = 13,
+                        Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204))
+                    };
+                };
+                input.KeyDown += (s, args) =>
+                {
+                    if (args.Key == Windows.System.VirtualKey.Enter)
+                    {
+                        var newTitle = input.Text.Trim();
+                        if (string.IsNullOrWhiteSpace(newTitle)) newTitle = tab.Title;
+                        tab.Title = newTitle;
+                        _dbService.UpdateNotepadTabTitle(tab.Id, newTitle);
+                        tvi.Header = new TextBlock
+                        {
+                            Text = newTitle, FontSize = 13,
+                            Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204))
+                        };
+                    }
+                };
             }
         }
 
@@ -211,467 +139,91 @@ namespace Todo
         private void SaveCurrentNotepadTab()
         {
             if (_currentNotepadTab == null) return;
-
-            var text = NotepadEditor.GetText() ?? "";
-            _currentNotepadTab.Content = text;
-            _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, text);
-
-            var firstLine = text.Split('\n').FirstOrDefault()?.TrimStart('#', ' ', '\t');
-            if (!string.IsNullOrWhiteSpace(firstLine) && _currentNotepadTab.Title == "未命名")
+            if (_isPreviewMode) return;
+            var text = NotepadEditor.Text;
+            if (text != _currentNotepadTab.Content)
             {
-                var newTitle = firstLine.Length > 20 ? firstLine[..20] + "..." : firstLine;
-                _currentNotepadTab.Title = newTitle;
-                _dbService.UpdateNotepadTabTitle(_currentNotepadTab.Id, newTitle);
+                _currentNotepadTab.Content = text;
+                _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, text);
             }
         }
 
-        // ── Tab event handlers ──
-
-        private void NotepadTabView_AddTabClick(TabView sender, object args) => AddNotepadTab("未命名");
+        private void NotepadTabView_AddTabClick(TabView sender, object args)
+        {
+            AddNotepadTab("未命名");
+        }
 
         private void NotepadTabView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (NotepadTabView.SelectedItem is TabViewItem tabItem && tabItem.Tag is NotepadTab tab)
+            _isNotepadTabSwitching = true;
+            SaveCurrentNotepadTab();
+            if (NotepadTabView.SelectedItem is TabViewItem tvi && tvi.Tag is NotepadTab tab)
             {
-                _isNotepadTabSwitching = true;
-                SaveCurrentNotepadTab();
-
                 _currentNotepadTab = tab;
-                NotepadEditor.LoadText(tab.Content);
-                _prevNotepadText = tab.Content;
-
+                NotepadEditor.Text = tab.Content;
+                NotepadPreview.Text = tab.Content;
                 if (_isPreviewMode)
-                    RenderMarkdownPreview();
-
-                _isNotepadTabSwitching = false;
+                {
+                    NotepadPreviewContainer.Visibility = Visibility.Visible;
+                    NotepadEditor.Visibility = Visibility.Collapsed;
+                    NotepadEditTools.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    NotepadEditor.Visibility = Visibility.Visible;
+                    NotepadEditTools.Visibility = Visibility.Visible;
+                    NotepadPreviewContainer.Visibility = Visibility.Collapsed;
+                }
             }
+            _isNotepadTabSwitching = false;
         }
 
         private void NotepadTabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
         {
-            if (args.Item is TabViewItem tabItem && tabItem.Tag is NotepadTab tab)
+            if (args.Item is TabViewItem tvi && tvi.Tag is NotepadTab tab)
             {
                 _dbService.DeleteNotepadTab(tab.Id);
                 _notepadTabs.Remove(tab);
-                NotepadTabView.TabItems.Remove(tabItem);
-
-                if (_currentNotepadTab == tab)
-                    _currentNotepadTab = null;
-
                 if (_notepadTabs.Count == 0)
                     AddNotepadTab("未命名");
             }
         }
 
-        // ── Editor events ──
-
-        // ── 列表续列 (轮询检测换行) ──
-
-        private bool HandleSmartListContinueOnTextChange(string newText)
+        private void SwitchToEditMode()
         {
-            if (string.IsNullOrEmpty(_prevNotepadText))
+            _isPreviewMode = false;
+            NotepadPreviewContainer.Visibility = Visibility.Collapsed;
+            NotepadEditor.Visibility = Visibility.Visible;
+            NotepadEditTools.Visibility = Visibility.Visible;
+            NotepadPreviewToggleIcon.Glyph = "\uE890";
+            NotepadPreviewToggleText.Text = "预览";
+            NotepadEditor.Text = _currentNotepadTab?.Content ?? "";
+            NotepadEditor.Focus(FocusState.Programmatic);
+        }
+
+        private void SwitchToPreviewMode()
+        {
+            if (_currentNotepadTab != null && !_isPreviewMode)
             {
-                _prevNotepadText = newText;
-                return false;
-            }
-
-            int diffPos = 0;
-            while (diffPos < _prevNotepadText.Length && diffPos < newText.Length
-                   && _prevNotepadText[diffPos] == newText[diffPos])
-                diffPos++;
-
-            var newTail = newText[diffPos..];
-            if (!newTail.StartsWith("\n")) return false;
-
-            var lineStart = _prevNotepadText.LastIndexOf('\n', diffPos > 0 ? diffPos - 1 : 0);
-            lineStart = lineStart < 0 ? 0 : lineStart + 1;
-            var line = _prevNotepadText[lineStart..diffPos];
-
-            var orderedMatch = System.Text.RegularExpressions.Regex.Match(line, @"^(\s*)(\d+|[a-zA-Z]+)[.)]\s+(.*)");
-            var unorderedMatch = System.Text.RegularExpressions.Regex.Match(line, @"^(\s*)([-*+])\s+(.*)");
-
-            (string indent, string insertText, int cursorAfter)? action = null;
-
-            if (orderedMatch.Success)
-            {
-                var indent = orderedMatch.Groups[1].Value;
-                var numStr = orderedMatch.Groups[2].Value;
-                var markerEnd = orderedMatch.Groups[2].Index + orderedMatch.Groups[2].Length;
-                var markerChar = line[markerEnd];
-                var next = NextOrderedItem(numStr);
-                var insertText = $"{indent}{next}{markerChar} ";
-                var insertPos = diffPos + 1;
-                action = (indent, insertText, insertPos + insertText.Length);
-            }
-            else if (unorderedMatch.Success)
-            {
-                var indent = unorderedMatch.Groups[1].Value;
-                var marker = unorderedMatch.Groups[2].Value;
-                var insertText = $"{indent}{marker} ";
-                var insertPos = diffPos + 1;
-                action = (indent, insertText, insertPos + insertText.Length);
-            }
-
-            if (action == null) return false;
-
-            var insertAt = diffPos + 1;
-            var rebuilt = newText[..insertAt] + action.Value.insertText + newText[insertAt..];
-            NotepadEditor.SetText(rebuilt);
-            _prevNotepadText = rebuilt;
-            SetCursorCharIndex(action.Value.cursorAfter);
-            return true;
-        }
-
-        private static string NextOrderedItem(string current)
-        {
-            if (int.TryParse(current, out int n)) return (n + 1).ToString();
-            if (current.Length == 1 && current[0] >= 'a' && current[0] < 'z')
-                return ((char)(current[0] + 1)).ToString();
-            if (current.Length == 1 && current[0] == 'z') return "aa";
-            if (current.Length == 1 && current[0] >= 'A' && current[0] < 'Z')
-                return ((char)(current[0] + 1)).ToString();
-            if (current.Length == 1 && current[0] == 'Z') return "AA";
-            return current;
-        }
-
-        // ── Toolbar button handlers ──
-
-        private void NotepadBold_Click(object sender, RoutedEventArgs e) => InsertMarkdownSyntax("**", "**");
-        private void NotepadItalic_Click(object sender, RoutedEventArgs e) => InsertMarkdownSyntax("*", "*");
-        private void NotepadUnderline_Click(object sender, RoutedEventArgs e) => InsertMarkdownSyntax("<u>", "</u>");
-        private void NotepadStrikethrough_Click(object sender, RoutedEventArgs e) => InsertMarkdownSyntax("~~", "~~");
-        private void NotepadOrderedList_Click(object sender, RoutedEventArgs e) => InsertMarkdownLinePrefix("1. ");
-        private void NotepadUnorderedList_Click(object sender, RoutedEventArgs e) => InsertMarkdownLinePrefix("- ");
-        private void NotepadCodeBlock_Click(object sender, RoutedEventArgs e) => InsertMarkdownBlock("```\n", "\n```");
-        private void NotepadQuote_Click(object sender, RoutedEventArgs e) => InsertMarkdownLinePrefix("> ");
-        private void NotepadLink_Click(object sender, RoutedEventArgs e) => InsertLink();
-
-        private void NotepadImage_Click(object sender, RoutedEventArgs e)
-        {
-            var tb = NotepadEditor;
-            var ci = GetCursorCharIndex();
-            var text = tb.GetText();
-            tb.SetText(text.Insert(ci, "![描述](url)"));
-            SetCursorCharIndex(ci + 3);
-            tb.SetSelection(ci + 3, 2);
-        }
-
-        private void NotepadTable_Click(object sender, RoutedEventArgs e)
-        {
-            var template = "\n| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n|     |     |     |\n";
-            var tb = NotepadEditor;
-            var ci = GetCursorCharIndex();
-            tb.SetText(tb.GetText().Insert(ci, template));
-            SetCursorCharIndex(ci + 3);
-        }
-
-        private void NotepadHorizontalRule_Click(object sender, RoutedEventArgs e)
-        {
-            var tb = NotepadEditor;
-            var text = tb.GetText();
-            var ci = GetCursorCharIndex();
-            var prefix = ci > 0 && text[ci - 1] != '\n' ? "\n" : "";
-            var suffix = ci < text.Length && text[ci] != '\n' ? "\n" : "";
-            tb.SetText(text.Insert(ci, prefix + "---" + suffix));
-            SetCursorCharIndex(ci + prefix.Length + 3 + suffix.Length);
-        }
-
-        private void NotepadHeading_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is MenuFlyoutItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int level))
-                InsertHeading(level);
-        }
-
-        private void NotepadFind_Click(object sender, RoutedEventArgs e)
-        {
-            if (NotepadEditor.SearchIsOpen)
-                NotepadEditor.EndSearch();
-            else
-                NotepadEditor.BeginSearch("", false, false);
-        }
-
-        // ── Markdown formatting helpers ──
-
-        private void InsertMarkdownSyntax(string prefix, string suffix)
-        {
-            var tb = NotepadEditor;
-            var text = tb.GetText();
-            var selRange = GetSelectionRange();
-            var ci = GetCursorCharIndex();
-
-            if (selRange != null)
-            {
-                var (selStart, selLen) = selRange.Value;
-                var sel = text.Substring(selStart, selLen);
-                tb.SetText(text.Remove(selStart, selLen).Insert(selStart, prefix + sel + suffix));
-                SetCursorCharIndex(selStart + prefix.Length);
-                tb.SetSelection(selStart + prefix.Length, sel.Length);
-            }
-            else
-            {
-                var placeholder = prefix + "文本" + suffix;
-                tb.SetText(text.Insert(ci, placeholder));
-                SetCursorCharIndex(ci + prefix.Length);
-                tb.SetSelection(ci + prefix.Length, 2);
-            }
-        }
-
-        private void InsertMarkdownLinePrefix(string prefix)
-        {
-            var tb = NotepadEditor;
-            var text = tb.GetText();
-            var ci = GetCursorCharIndex();
-
-            var lineStart = text.LastIndexOf('\n', ci > 0 ? ci - 1 : 0);
-            lineStart = lineStart < 0 ? 0 : lineStart + 1;
-
-            if (lineStart < text.Length)
-            {
-                var restOfLine = text[lineStart..];
-                var newlineIdx = restOfLine.IndexOf('\n');
-                var currentLine = newlineIdx < 0 ? restOfLine : restOfLine[..newlineIdx];
-
-                bool hasOrdered = System.Text.RegularExpressions.Regex.IsMatch(currentLine, @"^\s*\d+[.)]\s");
-                bool hasAlpha = System.Text.RegularExpressions.Regex.IsMatch(currentLine, @"^\s*[a-zA-Z][.)]\s");
-                bool hasUnordered = System.Text.RegularExpressions.Regex.IsMatch(currentLine, @"^\s*[-*+]\s");
-
-                if (hasOrdered || hasAlpha)
+                var text = NotepadEditor.Text;
+                if (text != _currentNotepadTab.Content)
                 {
-                    var match = System.Text.RegularExpressions.Regex.Match(currentLine, @"^\s*(\d+|[a-zA-Z])[.)]\s+");
-                    SetCursorCharIndex(lineStart + (match.Success ? match.Length : 0));
-                    return;
-                }
-                if (hasUnordered)
-                {
-                    var match = System.Text.RegularExpressions.Regex.Match(currentLine, @"^\s*[-*+]\s+");
-                    SetCursorCharIndex(lineStart + (match.Success ? match.Length : 2));
-                    return;
+                    _currentNotepadTab.Content = text;
+                    _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, text);
                 }
             }
-
-            tb.SetText(text.Insert(lineStart, prefix));
-            SetCursorCharIndex(lineStart + prefix.Length);
-        }
-
-        private void InsertMarkdownBlock(string open, string close)
-        {
-            var tb = NotepadEditor;
-            var text = tb.GetText();
-            var selRange = GetSelectionRange();
-            var ci = GetCursorCharIndex();
-
-            if (selRange != null)
-            {
-                var (selStart, selLen) = selRange.Value;
-                var sel = text.Substring(selStart, selLen);
-                tb.SetText(text.Remove(selStart, selLen).Insert(selStart, open + sel + close));
-                SetCursorCharIndex(selStart + open.Length);
-                tb.SetSelection(selStart + open.Length, sel.Length);
-            }
-            else
-            {
-                tb.SetText(text.Insert(ci, open + close));
-                SetCursorCharIndex(ci + open.Length);
-            }
-        }
-
-        private void InsertHeading(int level)
-        {
-            var tb = NotepadEditor;
-            var text = tb.GetText();
-            var ci = GetCursorCharIndex();
-            var lineStart = text.LastIndexOf('\n', ci > 0 ? ci - 1 : 0);
-            if (lineStart < 0) lineStart = -1;
-            lineStart++;
-
-            var hPrefix = new string('#', level) + " ";
-            var lineEnd = text.IndexOf('\n', lineStart);
-            if (lineEnd < 0) lineEnd = text.Length;
-            var line = text.Substring(lineStart, lineEnd - lineStart);
-            var trimmed = line.TrimStart('#', ' ');
-
-            tb.SetText(text.Remove(lineStart, line.Length).Insert(lineStart, hPrefix + trimmed));
-            SetCursorCharIndex(lineStart + hPrefix.Length + trimmed.Length);
-        }
-
-        private void InsertLink()
-        {
-            var tb = NotepadEditor;
-            var text = tb.GetText();
-            var selRange = GetSelectionRange();
-            var ci = GetCursorCharIndex();
-
-            if (selRange != null)
-            {
-                var (selStart, selLen) = selRange.Value;
-                var sel = text.Substring(selStart, selLen);
-                tb.SetText(text.Remove(selStart, selLen).Insert(selStart, $"[{sel}](url)"));
-                SetCursorCharIndex(selStart + sel.Length + 3);
-                tb.SetSelection(selStart + sel.Length + 3, 3);
-            }
-            else
-            {
-                tb.SetText(text.Insert(ci, "[文本](url)"));
-                SetCursorCharIndex(ci + 1);
-                tb.SetSelection(ci + 1, 2);
-            }
-        }
-
-        // ── File operations ──
-
-        private async void NotepadOpen_Click(object sender, RoutedEventArgs e)
-        {
-            var picker = new FileOpenPicker();
-            picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-            picker.FileTypeFilter.Add(".md");
-            picker.FileTypeFilter.Add(".txt");
-
-            var hwnd = WindowNative.GetWindowHandle(this);
-            InitializeWithWindow.Initialize(picker, hwnd);
-
-            var file = await picker.PickSingleFileAsync();
-            if (file != null)
-            {
-                var content = await FileIO.ReadTextAsync(file);
-                var tab = _dbService.AddNotepadTab(file.Name);
-                tab.Content = content;
-                tab.FilePath = file.Path;
-                _dbService.UpdateNotepadTabContent(tab.Id, content);
-                _dbService.UpdateNotepadTabFilePath(tab.Id, file.Path);
-
-                _notepadTabs.Add(tab);
-                NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
-                NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
-            }
-        }
-
-        private async void NotepadSave_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentNotepadTab == null) return;
-            SaveCurrentNotepadTab();
-
-            if (!string.IsNullOrEmpty(_currentNotepadTab.FilePath))
-            {
-                try
-                {
-                    var file = await StorageFile.GetFileFromPathAsync(_currentNotepadTab.FilePath);
-                    await FileIO.WriteTextAsync(file, NotepadEditor.GetText());
-                    RenderMarkdownPreview();
-                }
-                catch
-                {
-                    await NotepadSaveAsAsync();
-                }
-            }
-            else
-            {
-                await NotepadSaveAsAsync();
-            }
-        }
-
-        private async void NotepadSaveAs_Click(object sender, RoutedEventArgs e) => await NotepadSaveAsAsync();
-
-        private async Task NotepadSaveAsAsync()
-        {
-            if (_currentNotepadTab == null) return;
-
-            var picker = new FileSavePicker();
-            picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-            picker.FileTypeChoices.Add("Markdown", new List<string> { ".md" });
-            picker.FileTypeChoices.Add("文本文件", new List<string> { ".txt" });
-            picker.SuggestedFileName = _currentNotepadTab.Title;
-
-            var hwnd = WindowNative.GetWindowHandle(this);
-            InitializeWithWindow.Initialize(picker, hwnd);
-
-            var file = await picker.PickSaveFileAsync();
-            if (file != null)
-            {
-                await FileIO.WriteTextAsync(file, NotepadEditor.GetText());
-                _currentNotepadTab.FilePath = file.Path;
-                _currentNotepadTab.Title = file.Name;
-                _dbService.UpdateNotepadTabFilePath(_currentNotepadTab.Id, file.Path);
-                _dbService.UpdateNotepadTabTitle(_currentNotepadTab.Id, file.Name);
-            }
-        }
-
-        private async void NotepadSaveToFile()
-        {
-            if (_currentNotepadTab == null) return;
-            if (string.IsNullOrEmpty(_currentNotepadTab.FilePath)) return;
-
-            try
-            {
-                var file = await StorageFile.GetFileFromPathAsync(_currentNotepadTab.FilePath);
-                await FileIO.WriteTextAsync(file, NotepadEditor.GetText());
-            }
-            catch { }
-        }
-
-        // ── Preview / Edit mode ──
-
-        private bool _shellLoaded = false;
-
-        private async void InitializeNotepadPreview()
-        {
-            if (_webViewReady) return;
-            await NotepadPreview.EnsureCoreWebView2Async();
-
-            var shell = @"<!DOCTYPE html>
-<html><head><meta charset=""utf-8"">
-<script>
-function setContent(b64){const b=atob(b64);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);
-document.body.innerHTML=new TextDecoder('utf-8').decode(u);if(typeof hljs!=='undefined')hljs.highlightAll();}
-</script>
-<style>
-body{background:#161616;color:#e0e0e0;font-family:-apple-system,Segoe UI,sans-serif;font-size:15px;padding:28px 36px;line-height:1.75;margin:0;max-width:900px;}
-h1,h2,h3,h4,h5,h6{color:#fff;margin-top:1.3em;margin-bottom:.5em;font-weight:600;}
-h1{font-size:1.9em;border-bottom:1px solid #333;padding-bottom:10px;}
-h2{font-size:1.5em;border-bottom:1px solid #2a2a2a;padding-bottom:6px;}
-h3{font-size:1.25em;}code{background:#2a2a2a;padding:2px 6px;border-radius:4px;font-family:Consolas,monospace;font-size:13px;}
-pre{background:#1e1e1e;padding:16px;border-radius:8px;border:1px solid #333;overflow-x:auto;}
-pre code{background:none;padding:0;font-size:13px;}
-blockquote{border-left:3px solid #0078d4;padding:4px 16px;color:#aaa;margin:12px 0;background:#1e1e1e;border-radius:0 4px 4px 0;}
-a{color:#0078d4;text-decoration:none;}a:hover{text-decoration:underline;}
-table{border-collapse:collapse;width:100%;margin:12px 0;}
-th,td{border:1px solid #333;padding:10px 14px;text-align:left;}
-th{background:#2a2a2a;font-weight:600;}tr:nth-child(even){background:#1a1a1a;}
-img{max-width:100%;border-radius:4px;}hr{border:none;border-top:1px solid #333;margin:24px 0;}
-ul,ol{padding-left:26px;}li{margin:6px 0;}p{margin:.7em 0;}strong{color:#fff;}del{color:#888;}
-input[type=""checkbox""]{margin-right:8px;accent-color:#0078d4;}
-</style></head><body></body></html>";
-
-            var tcs = new TaskCompletionSource<bool>();
-            NotepadPreview.NavigationCompleted += (s, e) => tcs.TrySetResult(e.IsSuccess);
-            NotepadPreview.NavigateToString(shell);
-            await Task.WhenAny(tcs.Task, Task.Delay(5000));
-
-            _ = NotepadPreview.CoreWebView2.ExecuteScriptAsync(@"
-var l=document.createElement('link');l.rel='stylesheet';
-l.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css';
-document.head.appendChild(l);
-var s=document.createElement('script');
-s.src='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js';
-s.onload=function(){if(typeof hljs!=='undefined')hljs.highlightAll();};
-document.head.appendChild(s);");
-
-            _webViewReady = true;
-            _shellLoaded = true;
-            RenderMarkdownPreview();
-        }
-
-        private async void RenderMarkdownPreview()
-        {
-            if (!_webViewReady || !_shellLoaded) return;
-            var markdown = _currentNotepadTab?.Content ?? "";
-            var html = Markdown.ToHtml(markdown, _mdPipeline);
-            var base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(html));
-            try { await NotepadPreview.CoreWebView2.ExecuteScriptAsync($"setContent('{base64}');"); }
-            catch { }
+            NotepadPreview.Text = _currentNotepadTab?.Content ?? "";
+            _isPreviewMode = true;
+            NotepadEditor.Visibility = Visibility.Collapsed;
+            NotepadEditTools.Visibility = Visibility.Collapsed;
+            NotepadPreviewContainer.Visibility = Visibility.Visible;
+            NotepadPreviewToggleIcon.Glyph = "\uE70F";
+            NotepadPreviewToggleText.Text = "编辑";
         }
 
         private void NotepadPreviewToggle_Click(object sender, RoutedEventArgs e)
         {
+            EncodeToolbarClick();
             if (_isPreviewMode) SwitchToEditMode(); else SwitchToPreviewMode();
         }
 
@@ -680,54 +232,428 @@ document.head.appendChild(s);");
             if (_isPreviewMode) SwitchToEditMode();
         }
 
-        private void SwitchToEditMode()
-        {
-            _isPreviewMode = false;
-            NotepadPreview.Visibility = Visibility.Collapsed;
-            NotepadEditor.Visibility = Visibility.Visible;
-            NotepadEditor.Focus(FocusState.Programmatic);
-            UpdateToolbarForMode();
-        }
-
-        private void SwitchToPreviewMode()
-        {
-            SaveCurrentNotepadTab();
-            RenderMarkdownPreview();
-            _isPreviewMode = true;
-            NotepadEditor.Visibility = Visibility.Collapsed;
-            NotepadPreview.Visibility = Visibility.Visible;
-            UpdateToolbarForMode();
-        }
-
         private void RootGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (_isPreviewMode) return;
             if (NotepadContent.Visibility != Visibility.Visible) return;
             var source = e.OriginalSource as DependencyObject;
-            if (IsDescendantOf(source, NotepadToolbar)) return;
-            if (IsDescendantOf(source, NotepadEditor)) return;
+            if (IsDescendantOf(source, NotepadContent)) return;
             SwitchToPreviewMode();
         }
 
         private static bool IsDescendantOf(DependencyObject? child, DependencyObject parent)
         {
-            while (child != null) { if (child == parent) return true; child = VisualTreeHelper.GetParent(child); }
+            while (child != null)
+            {
+                if (child == parent) return true;
+                child = VisualTreeHelper.GetParent(child);
+            }
             return false;
         }
 
-        private void UpdateToolbarForMode()
+        private void NotepadEditor_LostFocus(object sender, RoutedEventArgs e)
         {
-            if (_isPreviewMode)
+            if (_isPreviewMode) return;
+            if ((DateTime.Now - _lastToolbarClick).TotalMilliseconds < 400) return;
+            DispatcherQueue.TryEnqueue(() =>
             {
-                NotepadPreviewToggleIcon.Glyph = "";
-                NotepadPreviewToggleText.Text = "编辑";
-                NotepadEditTools.Visibility = Visibility.Collapsed;
+                if (_isPreviewMode) return;
+                var focused = FocusManager.GetFocusedElement(this.Content.XamlRoot);
+                if (focused == null) { SwitchToPreviewMode(); return; }
+                var dep = focused as DependencyObject;
+                if (dep == NotepadEditor) return;
+                if (IsDescendantOf(dep, NotepadToolbar)) return;
+                if (IsDescendantOf(dep, NotepadEditTools)) return;
+                if (IsDescendantOf(dep, NotepadTabView)) return;
+                if (IsDescendantOf(dep, NotepadPreviewToggleButton)) return;
+                SwitchToPreviewMode();
+            });
+        }
+
+        private void NotepadEditor_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (_isPreviewMode) return;
+
+            var ctrl = IsCtrlPressed();
+            var shift = IsShiftPressed();
+
+            if (ctrl && !shift)
+            {
+                switch (e.Key)
+                {
+                    case Windows.System.VirtualKey.B:
+                        InsertMarkdownSyntax("**", "**"); e.Handled = true; return;
+                    case Windows.System.VirtualKey.I:
+                        InsertMarkdownSyntax("*", "*"); e.Handled = true; return;
+                    case Windows.System.VirtualKey.K:
+                        InsertLink(); e.Handled = true; return;
+                    case Windows.System.VirtualKey.S:
+                        SaveCurrentNotepadTab();
+                        NotepadPreview.Text = _currentNotepadTab?.Content ?? "";
+                        e.Handled = true; return;
+                }
+            }
+
+            if (ctrl && shift)
+            {
+                switch (e.Key)
+                {
+                    case Windows.System.VirtualKey.X:
+                        InsertMarkdownSyntax("~~", "~~"); e.Handled = true; return;
+                    case Windows.System.VirtualKey.C:
+                        InsertMarkdownSyntax("`", "`"); e.Handled = true; return;
+                    case Windows.System.VirtualKey.Q:
+                        InsertMarkdownLinePrefix("> "); e.Handled = true; return;
+                }
+            }
+
+            if (e.Key == Windows.System.VirtualKey.Enter && !ctrl)
+                { HandleSmartEnter(); e.Handled = true; return; }
+
+            if (e.Key == Windows.System.VirtualKey.Back && !ctrl)
+                { HandleSmartBackspace(); e.Handled = true; return; }
+
+            if (e.Key == Windows.System.VirtualKey.Tab && !ctrl)
+                { HandleSmartTab(shift); e.Handled = true; return; }
+
+            if (e.Key == Windows.System.VirtualKey.Escape)
+                { SwitchToPreviewMode(); e.Handled = true; return; }
+        }
+
+        private void HandleSmartEnter()
+        {
+            var text = NotepadEditor.Text;
+            var pos = NotepadEditor.SelectionStart;
+            if (pos < 0 || pos > text.Length) return;
+            var nl = '\n';
+
+            int lineStart = text.LastIndexOf(nl, pos > 0 ? pos - 1 : 0);
+            if (lineStart < 0) lineStart = 0; else lineStart++;
+            var currentLine = text.Substring(lineStart, pos - lineStart);
+
+            // Ordered list
+            var om = System.Text.RegularExpressions.Regex.Match(currentLine, @"^(\s*)(\d+)\.\s(.*)");
+            if (om.Success)
+            {
+                var indent = om.Groups[1].Value;
+                var num = int.Parse(om.Groups[2].Value);
+                var after = om.Groups[3].Value.Trim();
+                if (string.IsNullOrEmpty(after))
+                {
+                    var ml = indent.Length + om.Groups[2].Value.Length + 2;
+                    NotepadEditor.Text = text.Remove(lineStart, ml);
+                    NotepadEditor.SelectionStart = lineStart;
+                }
+                else
+                {
+                    var ins = nl + indent + (num + 1) + ". ";
+                    NotepadEditor.Text = text.Insert(pos, ins);
+                    NotepadEditor.SelectionStart = pos + ins.Length;
+                }
+                return;
+            }
+
+            // Unordered list
+            string[] ul = { "- ", "* ", "+ " };
+            foreach (var m in ul)
+            {
+                if (currentLine.StartsWith(m))
+                {
+                    var after = currentLine.Substring(m.Length).Trim();
+                    if (string.IsNullOrEmpty(after))
+                    {
+                        NotepadEditor.Text = text.Remove(lineStart, m.Length);
+                        NotepadEditor.SelectionStart = lineStart;
+                    }
+                    else
+                    {
+                        var ins = nl + m;
+                        NotepadEditor.Text = text.Insert(pos, ins);
+                        NotepadEditor.SelectionStart = pos + ins.Length;
+                    }
+                    return;
+                }
+            }
+
+            // Blockquote
+            if (currentLine.StartsWith("> "))
+            {
+                var after = currentLine.Substring(2).Trim();
+                if (string.IsNullOrEmpty(after))
+                {
+                    NotepadEditor.Text = text.Remove(lineStart, 2);
+                    NotepadEditor.SelectionStart = lineStart;
+                }
+                else
+                {
+                    var ins = nl + "> ";
+                    NotepadEditor.Text = text.Insert(pos, ins);
+                    NotepadEditor.SelectionStart = pos + ins.Length;
+                }
+                return;
+            }
+
+            NotepadEditor.Text = text.Insert(pos, nl.ToString());
+            NotepadEditor.SelectionStart = pos + 1;
+        }
+
+        private void HandleSmartBackspace()
+        {
+            var text = NotepadEditor.Text;
+            var pos = NotepadEditor.SelectionStart;
+            if (pos <= 0) return;
+            var nl = '\n';
+
+            int lineStart = text.LastIndexOf(nl, pos - 1);
+            if (lineStart < 0) lineStart = 0; else lineStart++;
+            var currentLine = text.Substring(lineStart, pos - lineStart);
+
+            if (pos == lineStart + currentLine.Length)
+            {
+                string[] markers = { "- ", "* ", "+ ", "> " };
+                foreach (var m in markers)
+                {
+                    if (currentLine == m)
+                    {
+                        NotepadEditor.Text = text.Remove(lineStart, m.Length);
+                        NotepadEditor.SelectionStart = lineStart;
+                        return;
+                    }
+                }
+                var om2 = System.Text.RegularExpressions.Regex.Match(currentLine, @"^(\d+)\.\s$");
+                if (om2.Success)
+                {
+                    NotepadEditor.Text = text.Remove(lineStart, om2.Length);
+                    NotepadEditor.SelectionStart = lineStart;
+                    return;
+                }
+            }
+
+            if (pos > 0)
+            {
+                NotepadEditor.Text = text.Remove(pos - 1, 1);
+                NotepadEditor.SelectionStart = pos - 1;
+            }
+        }
+
+        private void HandleSmartTab(bool shift)
+        {
+            var text = NotepadEditor.Text;
+            var selStart = NotepadEditor.SelectionStart;
+            var selLen = NotepadEditor.SelectionLength;
+            var nl = '\n';
+
+            if (selLen > 0)
+            {
+                var selEnd = selStart + selLen;
+                int bs = text.LastIndexOf(nl, selStart > 0 ? selStart - 1 : 0);
+                if (bs < 0) bs = 0; else bs++;
+                int be = text.IndexOf(nl, selEnd - 1);
+                if (be < 0) be = text.Length;
+                var block = text.Substring(bs, be - bs);
+                var lines = block.Split(nl);
+
+                if (shift)
+                    for (int i = 0; i < lines.Length; i++)
+                        lines[i] = lines[i].StartsWith("  ") ? lines[i].Substring(2)
+                                 : lines[i].StartsWith(" ") ? lines[i].Substring(1) : lines[i];
+                else
+                    for (int i = 0; i < lines.Length; i++)
+                        lines[i] = "  " + lines[i];
+
+                var nb = string.Join(nl.ToString(), lines);
+                NotepadEditor.Text = text.Remove(bs, be - bs).Insert(bs, nb);
+                NotepadEditor.SelectionStart = bs;
+                NotepadEditor.SelectionLength = nb.Length;
             }
             else
             {
-                NotepadPreviewToggleIcon.Glyph = "";
-                NotepadPreviewToggleText.Text = "预览";
-                NotepadEditTools.Visibility = Visibility.Visible;
+                if (shift)
+                {
+                    int ls = text.LastIndexOf(nl, selStart > 0 ? selStart - 1 : 0);
+                    if (ls < 0) ls = 0; else ls++;
+                    var prefix = text.Substring(ls, selStart - ls);
+                    if (prefix.StartsWith("  ")) { NotepadEditor.Text = text.Remove(ls, 2); NotepadEditor.SelectionStart = selStart - 2; }
+                    else if (prefix.StartsWith(" ")) { NotepadEditor.Text = text.Remove(ls, 1); NotepadEditor.SelectionStart = selStart - 1; }
+                }
+                else
+                {
+                    NotepadEditor.Text = text.Insert(selStart, "  ");
+                    NotepadEditor.SelectionStart = selStart + 2;
+                }
+            }
+        }
+
+        private void InsertMarkdownSyntax(string prefix, string suffix)
+        {
+            EncodeToolbarClick();
+            EnsureEditMode();
+            var ss = NotepadEditor.SelectionStart;
+            var sl = NotepadEditor.SelectionLength;
+            var text = NotepadEditor.Text;
+            if (sl > 0)
+            {
+                var sel = text.Substring(ss, sl);
+                var w = prefix + sel + suffix;
+                NotepadEditor.Text = text.Remove(ss, sl).Insert(ss, w);
+                NotepadEditor.SelectionStart = ss + prefix.Length;
+                NotepadEditor.SelectionLength = sel.Length;
+            }
+            else
+            {
+                var ins = prefix + suffix;
+                NotepadEditor.Text = text.Insert(ss, ins);
+                NotepadEditor.SelectionStart = ss + prefix.Length;
+            }
+        }
+
+        private void InsertMarkdownLinePrefix(string prefix)
+        {
+            EncodeToolbarClick();
+            EnsureEditMode();
+            var text = NotepadEditor.Text;
+            var pos = NotepadEditor.SelectionStart;
+            var nl = '\n';
+            int ls = text.LastIndexOf(nl, pos > 0 ? pos - 1 : 0);
+            if (ls < 0) ls = 0; else ls++;
+            NotepadEditor.Text = text.Insert(ls, prefix);
+            NotepadEditor.SelectionStart = ls + prefix.Length + (pos - ls);
+        }
+
+        private void InsertLink()
+        {
+            EncodeToolbarClick();
+            EnsureEditMode();
+            var ss = NotepadEditor.SelectionStart;
+            var sl = NotepadEditor.SelectionLength;
+            var text = NotepadEditor.Text;
+            if (sl > 0)
+            {
+                var sel = text.Substring(ss, sl);
+                var link = "[" + sel + "](url)";
+                NotepadEditor.Text = text.Remove(ss, sl).Insert(ss, link);
+                NotepadEditor.SelectionStart = ss + sel.Length + 3;
+                NotepadEditor.SelectionLength = 3;
+            }
+            else
+            {
+                var link = "[text](url)";
+                NotepadEditor.Text = text.Insert(ss, link);
+                NotepadEditor.SelectionStart = ss + 1;
+                NotepadEditor.SelectionLength = 4;
+            }
+        }
+
+        private void EncodeToolbarClick()
+        {
+            _lastToolbarClick = DateTime.Now;
+        }
+
+        private void EnsureEditMode()
+        {
+            if (_isPreviewMode) SwitchToEditMode();
+            NotepadEditor.Focus(FocusState.Programmatic);
+        }
+
+        private void NotepadEditor_TextChanged(object sender, TextChangedEventArgs e) { }
+
+        private void NotepadBold_Click(object sender, RoutedEventArgs e) => InsertMarkdownSyntax("**", "**");
+        private void NotepadItalic_Click(object sender, RoutedEventArgs e) => InsertMarkdownSyntax("*", "*");
+        private void NotepadUnderline_Click(object sender, RoutedEventArgs e) => InsertMarkdownSyntax("<u>", "</u>");
+        private void NotepadUnorderedList_Click(object sender, RoutedEventArgs e) => InsertMarkdownLinePrefix("- ");
+        private void NotepadOrderedList_Click(object sender, RoutedEventArgs e) => InsertMarkdownLinePrefix("1. ");
+        private void NotepadLink_Click(object sender, RoutedEventArgs e) => InsertLink();
+
+        private void NotepadTable_Click(object sender, RoutedEventArgs e)
+        {
+            EncodeToolbarClick(); EnsureEditMode();
+            var nl = '\n';
+            var table = nl + "| Header | Header |" + nl + "|--------|--------|" + nl + "| Cell   | Cell   |" + nl;
+            var text = NotepadEditor.Text;
+            var pos = NotepadEditor.SelectionStart;
+            NotepadEditor.Text = text.Insert(pos, table);
+            NotepadEditor.SelectionStart = pos + table.Length;
+        }
+
+        private void NotepadHorizontalRule_Click(object sender, RoutedEventArgs e)
+        {
+            EncodeToolbarClick(); EnsureEditMode();
+            var nl = '\n';
+            var hr = nl + "---" + nl;
+            var text = NotepadEditor.Text;
+            var pos = NotepadEditor.SelectionStart;
+            if (pos > 0 && text[pos - 1] != nl) hr = nl + hr;
+            NotepadEditor.Text = text.Insert(pos, hr);
+            NotepadEditor.SelectionStart = pos + hr.Length;
+        }
+
+        private void NotepadFind_Click(object sender, RoutedEventArgs e)
+        {
+            EncodeToolbarClick(); EnsureEditMode();
+        }
+
+        private void NotepadHeading_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuFlyoutItem item && item.Tag is string level)
+                InsertMarkdownLinePrefix(new string('#', int.Parse(level)) + " ");
+        }
+
+        private async void NotepadOpen_Click(object sender, RoutedEventArgs e)
+        {
+            EncodeToolbarClick();
+            var openPicker = new FileOpenPicker();
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(openPicker, hwnd);
+            openPicker.FileTypeFilter.Add(".md");
+            openPicker.FileTypeFilter.Add(".txt");
+            openPicker.FileTypeFilter.Add("*");
+            var file = await openPicker.PickSingleFileAsync();
+            if (file != null)
+            {
+                var content = await FileIO.ReadTextAsync(file);
+                var tab = _dbService.AddNotepadTab(file.Name);
+                tab.Content = content;
+                tab.FilePath = file.Path;
+                _dbService.UpdateNotepadTabContent(tab.Id, content);
+                _dbService.UpdateNotepadTabFilePath(tab.Id, file.Path);
+                _notepadTabs.Add(tab);
+                NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
+                NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
+            }
+        }
+
+        private void NotepadSave_Click(object sender, RoutedEventArgs e)
+        {
+            EncodeToolbarClick();
+            SaveCurrentNotepadTab();
+            NotepadPreview.Text = _currentNotepadTab?.Content ?? "";
+        }
+
+        private async void NotepadSaveAs_Click(object sender, RoutedEventArgs e)
+        {
+            EncodeToolbarClick();
+            if (_currentNotepadTab == null) return;
+            await NotepadSaveAsAsync();
+        }
+
+        private async Task NotepadSaveAsAsync()
+        {
+            if (_currentNotepadTab == null) return;
+            var savePicker = new FileSavePicker();
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(savePicker, hwnd);
+            savePicker.FileTypeChoices.Add("Markdown", new[] { ".md" });
+            savePicker.FileTypeChoices.Add("Text", new[] { ".txt" });
+            savePicker.SuggestedFileName = _currentNotepadTab.Title;
+            var file = await savePicker.PickSaveFileAsync();
+            if (file != null)
+            {
+                var content = _isPreviewMode ? _currentNotepadTab.Content : NotepadEditor.Text;
+                await FileIO.WriteTextAsync(file, content);
+                _currentNotepadTab.FilePath = file.Path;
+                _currentNotepadTab.Title = file.Name;
+                _dbService.UpdateNotepadTabFilePath(_currentNotepadTab.Id, file.Path);
+                _dbService.UpdateNotepadTabTitle(_currentNotepadTab.Id, file.Name);
             }
         }
     }

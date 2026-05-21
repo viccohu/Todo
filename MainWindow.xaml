@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Todo"
     xmlns:models="using:Todo.Models"
-    xmlns:tc="using:TextControlBoxNS"
+    xmlns:controls="using:CommunityToolkit.WinUI.UI.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -180,8 +180,8 @@
                             </Grid.RowDefinitions>
 
                             <!-- TabView 标签栏 -->
-                            <TabView x:Name="NotepadTabView"
-                                     Grid.Row="0"
+                           <TabView x:Name="NotepadTabView"
+                                    Grid.Row="0"
                                      AddTabButtonClick="NotepadTabView_AddTabClick"
                                      TabCloseRequested="NotepadTabView_TabCloseRequested"
                                      SelectionChanged="NotepadTabView_SelectionChanged"
@@ -191,8 +191,8 @@
                             </TabView>
 
                             <!-- 工具栏 -->
-                            <Grid x:Name="NotepadToolbar" Grid.Row="1" Background="#1e1e1e"
-                                  Padding="8,4" BorderBrush="#333" BorderThickness="0,0,0,1">
+                           <Grid x:Name="NotepadToolbar" Grid.Row="1" Background="#1e1e1e"
+                                 Padding="8,4" BorderBrush="#333" BorderThickness="0,0,0,1">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
@@ -264,16 +264,7 @@
                                             ToolTipService.ToolTip="下划线">
                                         <FontIcon Glyph="&#xE8DC;" FontSize="15" Foreground="#ccc"/>
                                     </Button>
-                                    <Button x:Name="NotepadStrikethroughButton"
-                                            Click="NotepadStrikethrough_Click"
-                                            Background="Transparent" BorderThickness="0" Padding="6,4"
-                                            ToolTipService.ToolTip="删除线">
-                                        <FontIcon Glyph="&#xE8DE;" FontSize="15" Foreground="#ccc"/>
-                                    </Button>
-
-                                    <Border Width="1" Background="#333" Margin="6,2"/>
-
-                                    <Button x:Name="NotepadUnorderedListButton"
+                                   <Button x:Name="NotepadUnorderedListButton"
                                             Click="NotepadUnorderedList_Click"
                                             Background="Transparent" BorderThickness="0" Padding="6,4"
                                             ToolTipService.ToolTip="无序列表">
@@ -285,34 +276,13 @@
                                             ToolTipService.ToolTip="有序列表">
                                         <FontIcon Glyph="&#xE8FE;" FontSize="15" Foreground="#ccc"/>
                                     </Button>
-                                    <Button x:Name="NotepadCodeBlockButton"
-                                            Click="NotepadCodeBlock_Click"
-                                            Background="Transparent" BorderThickness="0" Padding="6,4"
-                                            ToolTipService.ToolTip="代码块">
-                                        <FontIcon Glyph="&#xE943;" FontSize="15" Foreground="#ccc"/>
-                                    </Button>
-                                    <Button x:Name="NotepadQuoteButton"
-                                            Click="NotepadQuote_Click"
-                                            Background="Transparent" BorderThickness="0" Padding="6,4"
-                                            ToolTipService.ToolTip="引用">
-                                        <FontIcon Glyph="&#xE90C;" FontSize="15" Foreground="#ccc"/>
-                                    </Button>
-
-                                    <Border Width="1" Background="#333" Margin="6,2"/>
-
-                                    <Button x:Name="NotepadLinkButton"
+                                   <Button x:Name="NotepadLinkButton"
                                             Click="NotepadLink_Click"
                                             Background="Transparent" BorderThickness="0" Padding="6,4"
                                             ToolTipService.ToolTip="链接">
                                         <FontIcon Glyph="&#xE71B;" FontSize="15" Foreground="#ccc"/>
                                     </Button>
-                                    <Button x:Name="NotepadImageButton"
-                                            Click="NotepadImage_Click"
-                                            Background="Transparent" BorderThickness="0" Padding="6,4"
-                                            ToolTipService.ToolTip="图片">
-                                        <FontIcon Glyph="&#xE722;" FontSize="15" Foreground="#ccc"/>
-                                    </Button>
-                                    <Button x:Name="NotepadTableButton"
+                                   <Button x:Name="NotepadTableButton"
                                             Click="NotepadTable_Click"
                                             Background="Transparent" BorderThickness="0" Padding="6,4"
                                             ToolTipService.ToolTip="表格">
@@ -352,21 +322,36 @@
                             </Grid>
 
                             <!-- 编辑器区 -->
-                            <tc:TextControlBox x:Name="NotepadEditor"
+                            <TextBox x:Name="NotepadEditor"
                                      Grid.Row="2"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
                                      VerticalAlignment="Stretch"
                                      HorizontalAlignment="Stretch"
                                      Visibility="Collapsed"
-                                     Background="#161616"/>
+                                     Foreground="#e0e0e0"
+                                     Background="#161616"
+                                     BorderThickness="0"
+                                     Margin="24,8,24,8"
+                                     KeyDown="NotepadEditor_KeyDown"
+                                     TextChanged="NotepadEditor_TextChanged"
+                                     LostFocus="NotepadEditor_LostFocus">
+                                <TextBox.Resources>
+                                    <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#555"/>
+                                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
+                                    <SolidColorBrush x:Key="TextControlBackground" Color="#161616"/>
+                                    <SolidColorBrush x:Key="TextControlForeground" Color="#e0e0e0"/>
+                                </TextBox.Resources>
+                            </TextBox>
 
                             <!-- Markdown 预览区 -->
-                            <WebView2 x:Name="NotepadPreview"
-                                      Grid.Row="2"
-                                      VerticalAlignment="Stretch"
-                                      HorizontalAlignment="Stretch"
-                                      Visibility="Visible"
-                                      DefaultBackgroundColor="#161616"
-                                      DoubleTapped="NotepadPreview_DoubleTapped"/>
+                            <ScrollViewer x:Name="NotepadPreviewContainer" Grid.Row="2" Padding="24,8,24,8"
+                                          VerticalScrollBarVisibility="Auto"
+                                          DoubleTapped="NotepadPreview_DoubleTapped">
+                                <controls:MarkdownTextBlock x:Name="NotepadPreview"
+                                                            Background="#161616"
+                                                            Foreground="#e0e0e0"/>
+                            </ScrollViewer>
                         </Grid>
 
                         <!-- 任务列表 ScrollView -->

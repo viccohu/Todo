@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /d D:\\\\Project\\\\Todo)",
+      "Bash(dotnet restore *)",
+      "Bash(dotnet ildasm *)",
+      "Bash(strings \"C:/Users/SSSS/.nuget/packages/communitytoolkit.labs.winui.controls.markdowntextblock/0.1.251217-build.2433/lib/net9.0-windows10.0.19041/CommunityToolkit.WinUI.Controls.MarkdownTextBlock.dll\" 2>&1 | grep -i \"CommunityToolkit\\\\.\" | sort -u | head -20)",
+      "Bash(dotnet run *)",
+      "Bash(dotnet new *)",
+      "WebFetch(domain:github.com)",
+      "Bash(find \"C:/Users/SSSS/.nuget/packages/communitytoolkit.labs.winui.controls.markdowntextblock/0.1.251217-build.2433/\" -type f 2>/dev/null | head -30)",
+      "Bash(dotnet build *)"
+    ]
+  }
+}

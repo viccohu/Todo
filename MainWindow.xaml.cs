@@ -79,21 +79,19 @@ namespace Todo
                 }
 
                 // 记事本快捷键: Escape 切换预览, Ctrl+S 保存
-                if (_currentNavTag == "Notepad" && !_isPreviewMode)
-                {
-                    if (e.Key == Windows.System.VirtualKey.Escape)
-                    {
-                        SwitchToPreviewMode();
-                        e.Handled = true;
-                    }
-                    else if (e.Key == Windows.System.VirtualKey.S && IsCtrlPressed())
-                    {
-                        SaveCurrentNotepadTab();
-                        NotepadSaveToFile();
-                        RenderMarkdownPreview();
-                        e.Handled = true;
-                    }
-                }
+               if (_currentNavTag == "Notepad" && !_isPreviewMode)
+               {
+                   if (e.Key == Windows.System.VirtualKey.Escape)
+                   {
+                       SwitchToPreviewMode();
+                       e.Handled = true;
+                   }
+                   else if (e.Key == Windows.System.VirtualKey.S && IsCtrlPressed())
+                   {
+                       SaveCurrentNotepadTab();
+                       e.Handled = true;
+                   }
+               }
             };
 
             _trayService = new SystemTrayService(this, RootGrid);

@@ -1434,6 +1434,7 @@ namespace Todo
                 if (cb.IsChecked ?? false)
                 {
                     ReminderService.Instance.RemoveScheduledReminderNotifications(task.Id);
+                    ReminderService.Instance.ShowTaskCompletedNotification(task.Title);
 
                     var recurrence = _dbService.GetRecurrenceForTask(task.Id);
                     if (recurrence != null && recurrence.RecurrenceType != RecurrenceType.None)

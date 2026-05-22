@@ -197,9 +197,19 @@ namespace Todo.Services
         {
             try
             {
+                var now = DateTime.Now;
                 var overdueTasks = _dbService.GetOverdueUncheckedTasks();
                 foreach (var task in overdueTasks)
                 {
+                    if (!task.DueDate.HasValue) continue;
+
+                    // 截止日当天必须过了13:00才自动完成，过去的日期直接完成
+                    if (task.DueDate.Value.Date == now.Date && now.Hour < 13)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Skipping auto-complete (before 13:00): {task.Id} - {task.Title}");
+                        continue;
+                    }
+
                     System.Diagnostics.Debug.WriteLine($"Auto-completing overdue task: {task.Id} - {task.Title}, DueDate={task.DueDate}");
                     _dbService.UpdateTaskAutoCompleted(task.Id);
                     RemoveScheduledReminderNotifications(task.Id);
@@ -684,6 +694,24 @@ namespace Todo.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"ShowNotificationOnUIThread error: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        public void ShowTaskCompletedNotification(string taskTitle)
+        {
+            try
+            {
+                var builder = new AppNotificationBuilder()
+                    .AddText("任务已完成")
+                    .AddText(taskTitle)
+                    .SetAudioEvent(AppNotificationSoundEvent.Default);
+
+                var notification = new AppNotification(builder.BuildNotification().Payload);
+                ShowNotificationOnUIThread(notification);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ShowTaskCompletedNotification error: {ex.Message}");
             }
         }
     }

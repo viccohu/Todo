@@ -78,20 +78,6 @@ namespace Todo
                     e.Handled = true;
                 }
 
-                // 记事本快捷键: Escape 切换预览, Ctrl+S 保存
-               if (_currentNavTag == "Notepad" && !_isPreviewMode)
-               {
-                   if (e.Key == Windows.System.VirtualKey.Escape)
-                   {
-                       SwitchToPreviewMode();
-                       e.Handled = true;
-                   }
-                   else if (e.Key == Windows.System.VirtualKey.S && IsCtrlPressed())
-                   {
-                       SaveCurrentNotepadTab();
-                       e.Handled = true;
-                   }
-               }
             };
 
             _trayService = new SystemTrayService(this, RootGrid);
@@ -593,8 +579,15 @@ namespace Todo
             PaneFooterGrid.Visibility = Visibility.Collapsed;
         }
 
+        private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+        {
+            EnsureNotepadPreviewMode();
+        }
+
         private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
+            EnsureNotepadPreviewMode();
+
             if (_isDrawerOpen)
             {
                 CloseDrawer(false);

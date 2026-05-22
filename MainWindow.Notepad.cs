@@ -95,7 +95,7 @@ namespace Todo
                 Text = tab.Title,
                 FontSize = 13,
                 Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204)),
-                HorizontalAlignment = HorizontalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Center
             };
@@ -103,15 +103,15 @@ namespace Todo
             var header = new Grid
             {
                 MinWidth = 76,
-                Height = 34,
+                Height = 28,
                 Padding = new Thickness(6, 0, 6, 0)
             };
 
             var externalIndicator = new Border
             {
                 Height = 2,
-                Width = 58,
-                HorizontalAlignment = HorizontalAlignment.Center,
+                Width = 48,
+                HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
                 CornerRadius = new CornerRadius(1.5),
                 Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0, 120, 212)),
@@ -142,7 +142,7 @@ namespace Todo
                     Margin = new Thickness(0),
                     MinHeight = 0,
                     VerticalContentAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Left,
                     Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204)),
                     UseSystemFocusVisuals = false
                 };

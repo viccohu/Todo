@@ -20,6 +20,7 @@ using System.Threading;
 using Windows.Storage.Pickers;
 using Windows.Storage;
 using WinRT.Interop;
+using System.Drawing.Printing;
 
 namespace Todo
 {
@@ -321,10 +322,10 @@ namespace Todo
                     HorizontalAlignment = HorizontalAlignment.Center,
                     Opacity = 0.12
                 };
-                var emptyIcon = new FontIcon { Glyph = "\uE8FD", FontSize = 28, Foreground = new SolidColorBrush(Colors.White), HorizontalAlignment = HorizontalAlignment.Center };
-                var emptyText = new TextBlock { Text = "自定义区域", FontSize = 10, Foreground = new SolidColorBrush(Colors.White), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) };
+                var emptyIcon = new FontIcon { Glyph = "\uE8FD", FontSize = 28, Foreground = new SolidColorBrush(Colors.White), Margin = new Thickness(0, 20, 0, 20), HorizontalAlignment = HorizontalAlignment.Center };
+                
                 emptyPanel.Children.Add(emptyIcon);
-                emptyPanel.Children.Add(emptyText);
+                
                 emptyItem.Content = emptyPanel;
                 NavView.MenuItems.Add(emptyItem);
             }
@@ -571,12 +572,16 @@ namespace Todo
 
         private void NavView_PaneOpened(NavigationView sender, object args)
         {
-            PaneFooterGrid.Visibility = Visibility.Visible;
+            //PaneFooterGrid.Visibility = Visibility.Visible;
+            PaneFooterGrid.Opacity = 1;
+            PaneFooterGrid.IsHitTestVisible = true;
         }
 
         private void NavView_PaneClosed(NavigationView sender, object args)
         {
-            PaneFooterGrid.Visibility = Visibility.Collapsed;
+            //PaneFooterGrid.Visibility = Visibility.Collapsed;
+            PaneFooterGrid.Opacity = 0;
+            PaneFooterGrid.IsHitTestVisible = false;
         }
 
         private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)

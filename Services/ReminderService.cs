@@ -28,6 +28,8 @@ namespace Todo.Services
         private static readonly TimeSpan ReminderCatchUpWindow = TimeSpan.FromMinutes(2);
 
         public event EventHandler<TaskCompletedFromNotificationEventArgs>? TaskCompletedFromNotification;
+        public event Action? DateChanged;
+        private DateTime _lastDateCheck = DateTime.Today;
         
         private ReminderService()
         {
@@ -151,6 +153,13 @@ namespace Todo.Services
                 var now = DateTime.Now;
                 System.Diagnostics.Debug.WriteLine($"Checking reminders at {now:HH:mm:ss}");
 
+                var today = DateTime.Today;
+                if (today != _lastDateCheck)
+                {
+                    _lastDateCheck = today;
+                    DateChanged?.Invoke();
+                }
+
                 // 自动完成截止日期已过的任务
                 AutoCompleteOverdueTasks();
 
@@ -213,6 +222,7 @@ namespace Todo.Services
                     System.Diagnostics.Debug.WriteLine($"Auto-completing overdue task: {task.Id} - {task.Title}, DueDate={task.DueDate}");
                     _dbService.UpdateTaskAutoCompleted(task.Id);
                     RemoveScheduledReminderNotifications(task.Id);
+                    ShowTaskCompletedNotification(task.Title);
 
                     // 处理重复任务的下一期
                     var recurrence = _dbService.GetRecurrenceForTask(task.Id);
@@ -706,7 +716,9 @@ namespace Todo.Services
                     .AddText(taskTitle)
                     .SetAudioEvent(AppNotificationSoundEvent.Default);
 
-                var notification = new AppNotification(builder.BuildNotification().Payload);
+                var payload = builder.BuildNotification().Payload;
+                payload = payload.Replace("<toast", "<toast duration=\"long\"");
+                var notification = new AppNotification(payload);
                 ShowNotificationOnUIThread(notification);
             }
             catch (Exception ex)

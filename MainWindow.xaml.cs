@@ -102,6 +102,7 @@ namespace Todo
             }
 
             ReminderService.Instance.TaskCompletedFromNotification += ReminderService_TaskCompletedFromNotification;
+            ReminderService.Instance.DateChanged += OnDateChanged;
 
             NavView.SelectedItem = NavView.MenuItems[1];
             LoadTasksForCurrentNav();
@@ -1364,6 +1365,17 @@ namespace Todo
             DispatcherQueue.TryEnqueue(() => CompleteTaskInUi(args.CompletedTaskId, args.NewTaskId));
         }
 
+        private void OnDateChanged()
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                foreach (var task in Tasks)
+                    task.RefreshDateDisplay();
+                foreach (var task in CompletedTasks)
+                    task.RefreshDateDisplay();
+            });
+        }
+
         private void CompleteTaskInUi(int taskId, int? newTaskId)
         {
             var task = Tasks.FirstOrDefault(item => item.Id == taskId);
@@ -1524,6 +1536,14 @@ namespace Todo
             {
                 HideAddTaskInput();
                 e.Handled = true;
+            }
+        }
+
+        private void AddTaskTextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(AddTaskTextBox.Text))
+            {
+                HideAddTaskInput();
             }
         }
 

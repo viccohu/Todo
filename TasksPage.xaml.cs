@@ -15,7 +15,20 @@ namespace Todo
         {
             InitializeComponent();
             DataContext = this;
+
+            ReminderService.Instance.DateChanged += OnDateChanged;
+            Unloaded += (s, e) => ReminderService.Instance.DateChanged -= OnDateChanged;
+
             LoadTasks();
+        }
+
+        private void OnDateChanged()
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                foreach (var task in Tasks)
+                    task.RefreshDateDisplay();
+            });
         }
 
         private void LoadTasks()

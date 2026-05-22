@@ -51,6 +51,7 @@ namespace Todo
         private string _currentNavTag = "Important";
         private int? _currentListId = null;
         private DateTimeOffset? _pendingDueDate = null;
+        private bool _isDatePickerOpen = false;
         private List<TaskList> _standaloneLists = new List<TaskList>();
 
         private SystemTrayService? _trayService;
@@ -103,6 +104,12 @@ namespace Todo
 
             ReminderService.Instance.TaskCompletedFromNotification += ReminderService_TaskCompletedFromNotification;
             ReminderService.Instance.DateChanged += OnDateChanged;
+
+            if (AddTaskDueDateButton.Flyout is Flyout dateFlyout)
+            {
+                dateFlyout.Opening += (s, e) => _isDatePickerOpen = true;
+                dateFlyout.Closed += (s, e) => _isDatePickerOpen = false;
+            }
 
             NavView.SelectedItem = NavView.MenuItems[1];
             LoadTasksForCurrentNav();
@@ -228,6 +235,47 @@ namespace Todo
             }
             _standaloneLists = _dbService.GetStandaloneLists();
             RefreshCustomNavigation();
+            RefreshRecurringSubItems();
+        }
+
+        private void RefreshRecurringSubItems()
+        {
+            RecurringNavItem.MenuItems.Clear();
+
+            var builtInCategories = new[] { ListCategory.Daily, ListCategory.Weekly, ListCategory.Monthly };
+            foreach (var category in builtInCategories)
+            {
+                var list = _dbService.GetBuiltInListByCategory(category);
+                if (list == null) continue;
+
+                var tag = category switch
+                {
+                    ListCategory.Daily => "Daily",
+                    ListCategory.Weekly => "Weekly",
+                    ListCategory.Monthly => "Monthly",
+                    _ => ""
+                };
+
+                var item = new NavigationViewItem
+                {
+                    Content = list.Name,
+                    Tag = tag
+                };
+                item.Icon = category == ListCategory.Daily
+                    ? new SymbolIcon(Symbol.CalendarDay)
+                    : new FontIcon { Glyph = "" };
+                item.ContextFlyout = CreateBuiltInListContextFlyout(list);
+                RecurringNavItem.MenuItems.Add(item);
+            }
+        }
+
+        private MenuFlyout CreateBuiltInListContextFlyout(TaskList list)
+        {
+            var flyout = new MenuFlyout();
+            var renameItem = new MenuFlyoutItem { Text = "重命名", Icon = new SymbolIcon(Symbol.Rename) };
+            renameItem.Click += (s, e) => ShowRenameListDialog(list);
+            flyout.Items.Add(renameItem);
+            return flyout;
         }
 
         private void AutoCompleteOverdueTasks()
@@ -667,21 +715,21 @@ namespace Todo
                         break;
                     case "Daily":
                         _currentNavTag = "Daily";
-                        PageTitle.Text = "日常";
+                        PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Daily)?.Name ?? "日常";
                         PageIcon.Glyph = "\uE823";
                         ShowTaskListContent();
                         LoadTasksForCurrentNav();
                         break;
                     case "Weekly":
                         _currentNavTag = "Weekly";
-                        PageTitle.Text = "周常";
+                        PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Weekly)?.Name ?? "周常";
                         PageIcon.Glyph = "\uE817";
                         ShowTaskListContent();
                         LoadTasksForCurrentNav();
                         break;
                     case "Monthly":
                         _currentNavTag = "Monthly";
-                        PageTitle.Text = "月常";
+                        PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Monthly)?.Name ?? "月常";
                         PageIcon.Glyph = "\uE817";
                         ShowTaskListContent();
                         LoadTasksForCurrentNav();
@@ -703,15 +751,15 @@ namespace Todo
                     PageIcon.Glyph = "\uE8C8";
                     break;
                 case "Daily":
-                    PageTitle.Text = "日常";
+                    PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Daily)?.Name ?? "日常";
                     PageIcon.Glyph = "\uE823";
                     break;
                 case "Weekly":
-                    PageTitle.Text = "周常";
+                    PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Weekly)?.Name ?? "周常";
                     PageIcon.Glyph = "\uE817";
                     break;
                 case "Monthly":
-                    PageTitle.Text = "月常";
+                    PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Monthly)?.Name ?? "月常";
                     PageIcon.Glyph = "\uE817";
                     break;
                 case "StandaloneList":
@@ -1541,10 +1589,30 @@ namespace Todo
 
         private void AddTaskTextBox_LostFocus(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(AddTaskTextBox.Text))
+            // 延迟判断：如果焦点仍在 AddTaskInputArea 内（如点选日期），不收起
+            DispatcherQueue.TryEnqueue(() =>
             {
-                HideAddTaskInput();
+                var focused = FocusManager.GetFocusedElement(AddTaskTextBox.XamlRoot) as DependencyObject;
+                if (focused != null && IsElementInsideAddTaskInputArea(focused))
+                    return;
+
+                if (string.IsNullOrWhiteSpace(AddTaskTextBox.Text) && _pendingDueDate == null
+                    && !_isDatePickerOpen)
+                {
+                    HideAddTaskInput();
+                }
+            });
+        }
+
+        private bool IsElementInsideAddTaskInputArea(DependencyObject element)
+        {
+            var current = element;
+            while (current != null)
+            {
+                if (current == AddTaskInputArea) return true;
+                current = VisualTreeHelper.GetParent(current);
             }
+            return false;
         }
 
         private void AddTaskFromInput()

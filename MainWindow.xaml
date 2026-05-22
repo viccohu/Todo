@@ -81,27 +81,10 @@
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
                     
-                    <NavigationViewItem Content="常驻任务" Tag="Recurring" IsExpanded="True">
+                    <NavigationViewItem x:Name="RecurringNavItem" Content="例行任务" Tag="Recurring" IsExpanded="True">
                         <NavigationViewItem.Icon>
                             <SymbolIcon Symbol="Clock"/>
                         </NavigationViewItem.Icon>
-                        <NavigationViewItem.MenuItems>
-                            <NavigationViewItem Content="日常" Tag="Daily">
-                                <NavigationViewItem.Icon>
-                                    <SymbolIcon Symbol="CalendarDay"/>
-                                </NavigationViewItem.Icon>
-                            </NavigationViewItem>
-                            <NavigationViewItem Content="周常" Tag="Weekly">
-                                <NavigationViewItem.Icon>
-                                    <FontIcon Glyph="&#xE817;"/>
-                                </NavigationViewItem.Icon>
-                            </NavigationViewItem>
-                            <NavigationViewItem Content="月常" Tag="Monthly">
-                                <NavigationViewItem.Icon>
-                                    <FontIcon Glyph="&#xE817;"/>
-                                </NavigationViewItem.Icon>
-                            </NavigationViewItem>
-                        </NavigationViewItem.MenuItems>
                     </NavigationViewItem>
                     
                     <NavigationViewItemSeparator/>
@@ -265,19 +248,18 @@
                             </TextBox>
 
                             <!-- 只读预览区 -->
-                            <ScrollViewer x:Name="NotepadPreviewContainer" Grid.Row="2" Padding="24,8,24,8"
-                                          VerticalScrollBarVisibility="Auto"
-                                          DoubleTapped="NotepadPreview_DoubleTapped">
+                            <ScrollViewer x:Name="NotepadPreviewContainer" Grid.Row="2"
+                                          VerticalScrollBarVisibility="Auto">
                                 <TextBox x:Name="NotepadPreview"
                                          IsReadOnly="True"
-                                         AcceptsReturn="True"
+                                         Padding="24,8,24,8"
                                          TextWrapping="Wrap"
                                          HorizontalAlignment="Stretch"
                                          VerticalAlignment="Stretch"
                                          Background="#161616"
                                          Foreground="#e0e0e0"
                                          BorderThickness="0"
-                                         DoubleTapped="NotepadPreview_DoubleTapped">
+                                         KeyDown="NotepadPreview_KeyDown">
                                     <TextBox.Resources>
                                         <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
                                         <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
@@ -303,7 +285,7 @@
                                                     CornerRadius="8"
                                                     Height="60"
                                                     Margin="0,0,0,10"
-                                                    Background="{Binding DueUrgencyBackground, TargetNullValue=#1e1e1e}"
+                                                    Background="#1e1e1e"
                                                     Loaded="TaskBorder_Loaded"
                                                     Unloaded="TaskBorder_Unloaded"
                                                     PointerPressed="TaskItem_PointerPressed"
@@ -315,27 +297,32 @@
                                                         <MenuFlyoutItem Text="删除任务" Icon="Delete" Click="DeleteTask_Click"/>
                                                     </MenuFlyout>
                                                 </Border.ContextFlyout>
-                                                <Grid Margin="15,0">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="32"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <CheckBox Grid.Column="0"
-                                                              IsChecked="{Binding IsChecked, Mode=TwoWay}" 
-                                                              Click="TaskCheckBox_Click"/>
-                                                    <TextBlock Grid.Column="1"
-                                                               Text="{Binding Title}" 
-                                                               Foreground="White" 
-                                                               Margin="10,0,0,0"
-                                                               VerticalAlignment="Center"/>
-                                                    <StackPanel Grid.Column="2"
-                                                               HorizontalAlignment="Right"
-                                                               VerticalAlignment="Center"
-                                                               Margin="10,0,0,0">
-                                                        <TextBlock Foreground="#555" FontSize="10" HorizontalAlignment="Right" Text="{Binding CreatedAtLabel}"/>
-                                                        <TextBlock Foreground="#666" FontSize="10" HorizontalAlignment="Right" Text="{Binding DueDateLabel}"/>
-                                                    </StackPanel>
+                                                <Grid>
+                                                    <Rectangle Fill="{Binding DueUrgencyBackground}" RadiusX="8" RadiusY="8"/>
+                                                    <Grid Margin="15,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="32"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="180"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <CheckBox Grid.Column="0"
+                                                                  IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                                                  Click="TaskCheckBox_Click"/>
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding Title}"
+                                                                   Foreground="White"
+                                                                   Margin="10,0,0,0"
+                                                                   VerticalAlignment="Center"/>
+                                                        <StackPanel Grid.Column="2"
+                                                                    VerticalAlignment="Center"
+                                                                    HorizontalAlignment="Left"
+                                                                    Margin="10,0,0,0">
+                                                            <TextBlock FontSize="10" Text="{Binding CreatedAtFullLabel}"
+                                                                       Foreground="{Binding DateLabelForeground}"/>
+                                                            <TextBlock FontSize="10" Text="{Binding DueDateFullLabel}"
+                                                                       Foreground="{Binding DateLabelForeground}"/>
+                                                        </StackPanel>
+                                                    </Grid>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
@@ -367,7 +354,7 @@
                                                     CornerRadius="8"
                                                     Height="60"
                                                     Margin="0,0,0,10"
-                                                    Background="{Binding DueUrgencyBackground, TargetNullValue=#1e1e1e}"
+                                                    Background="#1e1e1e"
                                                     Opacity="0.6"
                                                     Loaded="TaskBorder_Loaded"
                                                     Unloaded="TaskBorder_Unloaded"
@@ -380,34 +367,39 @@
                                                         <MenuFlyoutItem Text="删除任务" Icon="Delete" Click="DeleteTask_Click"/>
                                                     </MenuFlyout>
                                                 </Border.ContextFlyout>
-                                                <Grid Margin="15,0">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="32"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="4"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <CheckBox Grid.Column="0"
-                                                              IsChecked="{Binding IsChecked, Mode=TwoWay}"
-                                                              Click="TaskCheckBox_Click"/>
-                                                    <TextBlock Grid.Column="1"
-                                                               Text="{Binding Title}"
-                                                               TextDecorations="Strikethrough"
-                                                               Foreground="#666"
-                                                               Margin="10,0,0,0"
-                                                               VerticalAlignment="Center"/>
-                                                    <StackPanel Grid.Column="2"
-                                                               HorizontalAlignment="Right"
-                                                               VerticalAlignment="Center"
-                                                               Margin="10,0,0,0">
-                                                        <TextBlock Foreground="#444" FontSize="10" HorizontalAlignment="Right" Text="{Binding CreatedAtLabel}"/>
-                                                        <TextBlock Foreground="#555" FontSize="10" HorizontalAlignment="Right" Text="{Binding DueDateLabel}"/>
-                                                    </StackPanel>
-                                                    <Rectangle Grid.Column="3"
-                                                               Fill="{Binding CompletionIndicatorBrush}"
-                                                               VerticalAlignment="Stretch"
-                                                               RadiusX="2" RadiusY="2"
-                                                               Margin="0,2"/>
+                                                <Grid>
+                                                    <Rectangle Fill="{Binding DueUrgencyBackground}" RadiusX="8" RadiusY="8"/>
+                                                    <Grid Margin="15,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="32"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="176"/>
+                                                            <ColumnDefinition Width="4"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <CheckBox Grid.Column="0"
+                                                                  IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                                                  Click="TaskCheckBox_Click"/>
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding Title}"
+                                                                   TextDecorations="Strikethrough"
+                                                                   Foreground="#666"
+                                                                   Margin="10,0,0,0"
+                                                                   VerticalAlignment="Center"/>
+                                                        <StackPanel Grid.Column="2"
+                                                                    VerticalAlignment="Center"
+                                                                    HorizontalAlignment="Left"
+                                                                    Margin="10,0,0,0">
+                                                            <TextBlock FontSize="10" Text="{Binding CreatedAtFullLabel}"
+                                                                       Foreground="{Binding DateLabelForeground}"/>
+                                                            <TextBlock FontSize="10" Text="{Binding DueDateFullLabel}"
+                                                                       Foreground="{Binding DateLabelForeground}"/>
+                                                        </StackPanel>
+                                                        <Rectangle Grid.Column="3"
+                                                                   Fill="{Binding CompletionIndicatorBrush}"
+                                                                   VerticalAlignment="Stretch"
+                                                                   RadiusX="2" RadiusY="2"
+                                                                   Margin="0,2"/>
+                                                    </Grid>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
@@ -1009,31 +1001,33 @@
                                         <Border BorderBrush="#333"
                                                 BorderThickness="1"
                                                 CornerRadius="6"
-                                                Background="{Binding DueUrgencyBackground, TargetNullValue=#262626}"
-                                                Padding="10,8">
-                                            <StackPanel>
-                                                <Grid MinHeight="28">
-                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
-                                                        <TextBlock Text="{Binding Title}" Foreground="White" FontSize="13" Margin="4,0,0,0"/>
-                                                    </CheckBox>
-                                                    <TextBlock Text="{Binding DueDateDisplay}" 
-                                                               HorizontalAlignment="Right" 
-                                                               VerticalAlignment="Center" 
-                                                               Foreground="#666" 
-                                                               FontSize="11"/>
-                                                </Grid>
-                                                <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Grid MinHeight="26" Margin="0,2,0,0">
-                                                                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
-                                                                    <TextBlock Text="{Binding Title}" Foreground="#aaa" FontSize="12"/>
-                                                                </CheckBox>
-                                                            </Grid>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                            </StackPanel>
+                                                Background="#262626">
+                                            <Grid>
+                                                <Rectangle Fill="{Binding DueUrgencyBackground}" RadiusX="6" RadiusY="6"/>
+                                                <StackPanel Margin="10,8">
+                                                    <Grid MinHeight="28">
+                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
+                                                            <TextBlock Text="{Binding Title}" Foreground="White" FontSize="13" Margin="4,0,0,0"/>
+                                                        </CheckBox>
+                                                        <TextBlock Text="{Binding DueDateDisplay}"
+                                                                   HorizontalAlignment="Right"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="#666"
+                                                                   FontSize="11"/>
+                                                    </Grid>
+                                                    <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Grid MinHeight="26" Margin="0,2,0,0">
+                                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
+                                                                        <TextBlock Text="{Binding Title}" Foreground="#aaa" FontSize="12"/>
+                                                                    </CheckBox>
+                                                                </Grid>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </Grid>
                                         </Border>
                                     </StackPanel>
                                 </DataTemplate>
@@ -1061,45 +1055,47 @@
                                         <Border BorderBrush="#333"
                                                 BorderThickness="1"
                                                 CornerRadius="6"
-                                                Background="{Binding DueUrgencyBackground, TargetNullValue=#262626}"
-                                                Opacity="0.6"
-                                                Padding="10,8">
+                                                Background="#262626"
+                                                Opacity="0.6">
                                             <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="4"/>
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0">
-                                                    <Grid MinHeight="28">
-                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
-                                                            <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888" FontSize="13" Margin="4,0,0,0"/>
-                                                        </CheckBox>
-                                                        <TextBlock Text="{Binding DueDateDisplay}"
-                                                                   HorizontalAlignment="Right"
-                                                                   VerticalAlignment="Center"
-                                                                   Foreground="#555"
-                                                                   FontSize="11"/>
-                                                    </Grid>
-                                                    <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <Grid MinHeight="26" Margin="0,2,0,0">
-                                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
-                                                                        <TextBlock Text="{Binding Title}"
-                                                                                   TextDecorations="Strikethrough"
-                                                                                   Foreground="#666"
-                                                                                   FontSize="12"/>
-                                                                    </CheckBox>
-                                                                </Grid>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                </StackPanel>
-                                                <Rectangle Grid.Column="1"
-                                                           Fill="{Binding CompletionIndicatorBrush}"
-                                                           VerticalAlignment="Stretch"
-                                                           RadiusX="2" RadiusY="2"
-                                                           Margin="0,2"/>
+                                                <Rectangle Fill="{Binding DueUrgencyBackground}" RadiusX="6" RadiusY="6"/>
+                                                <Grid Margin="10,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="4"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0">
+                                                        <Grid MinHeight="28">
+                                                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
+                                                                <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888" FontSize="13" Margin="4,0,0,0"/>
+                                                            </CheckBox>
+                                                            <TextBlock Text="{Binding DueDateDisplay}"
+                                                                       HorizontalAlignment="Right"
+                                                                       VerticalAlignment="Center"
+                                                                       Foreground="#555"
+                                                                       FontSize="11"/>
+                                                        </Grid>
+                                                        <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Grid MinHeight="26" Margin="0,2,0,0">
+                                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
+                                                                            <TextBlock Text="{Binding Title}"
+                                                                                       TextDecorations="Strikethrough"
+                                                                                       Foreground="#666"
+                                                                                       FontSize="12"/>
+                                                                        </CheckBox>
+                                                                    </Grid>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+                                                    <Rectangle Grid.Column="1"
+                                                               Fill="{Binding CompletionIndicatorBrush}"
+                                                               VerticalAlignment="Stretch"
+                                                               RadiusX="2" RadiusY="2"
+                                                               Margin="0,2"/>
+                                                </Grid>
                                             </Grid>
                                         </Border>
                                     </StackPanel>

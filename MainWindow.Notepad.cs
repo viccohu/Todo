@@ -306,6 +306,7 @@ namespace Todo
             NotepadPreviewContainer.Visibility = Visibility.Visible;
             NotepadPreviewToggleIcon.Glyph = "\uE70F";
             NotepadPreviewToggleText.Text = "编辑";
+            NotepadPreviewToggleButton.Focus(FocusState.Programmatic);
         }
 
         private void NotepadPreviewToggle_Click(object sender, RoutedEventArgs e)
@@ -313,9 +314,13 @@ namespace Todo
             if (_isPreviewMode) SwitchToEditMode(); else SwitchToPreviewMode();
         }
 
-        private void NotepadPreview_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        private void NotepadPreview_KeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (_isPreviewMode) SwitchToEditMode();
+            if (e.Key == Windows.System.VirtualKey.Enter && _isPreviewMode)
+            {
+                SwitchToEditMode();
+                e.Handled = true;
+            }
         }
 
         private void NotepadEditor_LostFocus(object sender, RoutedEventArgs e)

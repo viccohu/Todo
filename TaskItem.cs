@@ -52,7 +52,9 @@ namespace Todo
                 OnPropertyChanged(nameof(DueDateDisplay));
                 OnPropertyChanged(nameof(DueDateShortDisplay));
                 OnPropertyChanged(nameof(DueDateLabel));
+                OnPropertyChanged(nameof(DueDateFullLabel));
                 OnPropertyChanged(nameof(DueUrgencyBackground));
+                OnPropertyChanged(nameof(DateLabelForeground));
             }
         }
         
@@ -84,6 +86,7 @@ namespace Todo
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(CompletionIndicatorBrush));
                 OnPropertyChanged(nameof(DueUrgencyBackground));
+                OnPropertyChanged(nameof(DateLabelForeground));
             }
         }
         
@@ -126,6 +129,17 @@ namespace Todo
             }
         }
 
+        public string DueDateFullLabel
+        {
+            get
+            {
+                if (!DueDate.HasValue) return "";
+                return $"截止日期：{GetFriendlyDateText(DueDate)}  |  {DueDate:MM/dd}";
+            }
+        }
+
+        public string CreatedAtFullLabel => $"创建日期：{GetFriendlyDateText(CreatedAt)}  |  {CreatedAt:MM/dd}";
+
         public SolidColorBrush? DueUrgencyBackground
         {
             get
@@ -139,6 +153,22 @@ namespace Todo
                 if (d == today.AddDays(1))
                     return new SolidColorBrush(ColorHelper.FromArgb(255, 0x70, 0x8A, 0x4D));
                 return null;
+            }
+        }
+
+        public SolidColorBrush DateLabelForeground => IsUrgent
+            ? new SolidColorBrush(ColorHelper.FromArgb(255, 0x22, 0x22, 0x22))
+            : new SolidColorBrush(ColorHelper.FromArgb(255, 0x55, 0x55, 0x55));
+
+        private bool IsUrgent
+        {
+            get
+            {
+                if (IsChecked) return false;
+                if (!DueDate.HasValue) return false;
+                var d = DueDate.Value.Date;
+                var today = DateTime.Today;
+                return d == today || d == today.AddDays(1);
             }
         }
 
@@ -161,9 +191,12 @@ namespace Todo
             OnPropertyChanged(nameof(DueDateDisplay));
             OnPropertyChanged(nameof(DueDateShortDisplay));
             OnPropertyChanged(nameof(DueDateLabel));
+            OnPropertyChanged(nameof(DueDateFullLabel));
             OnPropertyChanged(nameof(DueUrgencyBackground));
             OnPropertyChanged(nameof(CreatedAtLabel));
             OnPropertyChanged(nameof(CreatedAtDisplay));
+            OnPropertyChanged(nameof(CreatedAtFullLabel));
+            OnPropertyChanged(nameof(DateLabelForeground));
         }
 
         private static string GetChineseDayOfWeek(DayOfWeek day) => day switch

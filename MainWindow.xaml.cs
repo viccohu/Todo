@@ -1526,18 +1526,6 @@ namespace Todo
             }
         }
 
-        private void AddTaskInput_LostFocus(object sender, RoutedEventArgs e)
-        {
-            if (!string.IsNullOrWhiteSpace(AddTaskTextBox.Text))
-            {
-                AddTaskFromInput();
-            }
-            else
-            {
-                HideAddTaskInput();
-            }
-        }
-
         private void AddTaskFromInput()
         {
             if (!string.IsNullOrWhiteSpace(AddTaskTextBox.Text))
@@ -1582,6 +1570,7 @@ namespace Todo
         {
             _pendingDueDate = null;
             AddTaskDueDateIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 85, 85, 85));
+            AddTaskDueDateText.Visibility = Visibility.Collapsed;
             ToolTipService.SetToolTip(AddTaskDueDateButton, "设置截止日期");
         }
 
@@ -1596,7 +1585,10 @@ namespace Todo
             {
                 _pendingDueDate = sender.SelectedDates[0];
                 AddTaskDueDateIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212));
+                AddTaskDueDateText.Text = _pendingDueDate.Value.ToString("MM/dd");
+                AddTaskDueDateText.Visibility = Visibility.Visible;
                 ToolTipService.SetToolTip(AddTaskDueDateButton, $"截止日期: {_pendingDueDate.Value:yyyy/MM/dd}");
+                AddTaskDueDateButton.Flyout.Hide();
             }
         }
 

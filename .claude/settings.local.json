@@ -9,7 +9,8 @@
       "Bash(dotnet new *)",
       "WebFetch(domain:github.com)",
       "Bash(find \"C:/Users/SSSS/.nuget/packages/communitytoolkit.labs.winui.controls.markdowntextblock/0.1.251217-build.2433/\" -type f 2>/dev/null | head -30)",
-      "Bash(dotnet build *)"
+      "Bash(dotnet build *)",
+      "Bash(git -C \"D:\\\\Project\\\\Todo\" log --oneline -10)"
     ]
   }
 }

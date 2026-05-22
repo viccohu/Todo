@@ -453,7 +453,7 @@ namespace Todo.Services
             var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO Tasks (Title, DueDate, IsImportant, ParentTaskId, ListId, CreatedAt) VALUES ($title, $dueDate, $isImportant, $parentTaskId, $listId, $createdAt); SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$title", title);
-            command.Parameters.AddWithValue("$dueDate", dueDate?.ToString("o"));
+            command.Parameters.AddWithValue("$dueDate", dueDate.HasValue ? dueDate.Value.ToString("o") : DBNull.Value);
             command.Parameters.AddWithValue("$isImportant", isImportant ? 1 : 0);
             command.Parameters.AddWithValue("$parentTaskId", parentTaskId.HasValue ? parentTaskId.Value : DBNull.Value);
             command.Parameters.AddWithValue("$listId", listId.HasValue ? listId.Value : DBNull.Value);

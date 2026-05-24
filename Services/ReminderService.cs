@@ -4,6 +4,7 @@ using Microsoft.UI.Dispatching;
 using Todo.Models;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
@@ -39,13 +40,18 @@ namespace Todo.Services
         public void Initialize()
         {
             if (_isInitialized) return;
-            
+
             try
             {
                 _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
                 AppNotificationManager.Default.NotificationInvoked -= OnNotificationInvoked;
                 AppNotificationManager.Default.NotificationInvoked += OnNotificationInvoked;
                 AppNotificationManager.Default.Register();
+
+                // 追补：检查今天所有未触发的提醒，过去的立刻弹
+                CatchUpTodayReminders();
+
+                // 为未来提醒注册 OS 计划通知
                 ScheduleAllPendingReminderNotifications();
                 StartReminderCheck();
                 _isInitialized = true;
@@ -54,6 +60,121 @@ namespace Todo.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"ReminderService initialization failed: {ex.Message}");
+            }
+        }
+
+        private void CatchUpTodayReminders()
+        {
+            try
+            {
+                var now = DateTime.Now;
+                var todayReminders = _dbService.GetTodayReminders();
+                System.Diagnostics.Debug.WriteLine($"CatchUpTodayReminders: found {todayReminders.Count} today reminders, now={now:HH:mm}");
+
+                foreach (var reminder in todayReminders)
+                {
+                    if (!reminder.ReminderDateTime.HasValue) continue;
+                    if (IsMutedForToday(reminder.TaskId)) continue;
+
+                    var reminderTime = reminder.ReminderDateTime.Value;
+                    var reminderKey = $"{reminder.TaskId}_{reminderTime:yyyyMMddHHmm}";
+
+                    if (reminderTime <= now)
+                    {
+                        if (reminder.EnableMultiDayReminders && reminder.SameDayIntervalMinutes > 0)
+                        {
+                            // 重复提醒：直接由 ScheduleSameDayReminders 找最近一次重复时间弹，不弹原始时间
+                            ScheduleSameDayReminders(reminder);
+                        }
+                        else if (ShouldShowReminder(reminderKey))
+                        {
+                            // 一次性提醒已过：立刻弹追补
+                            System.Diagnostics.Debug.WriteLine($"CatchUp: showing missed reminder for task {reminder.TaskId} at {reminderTime:HH:mm}");
+                            ShowSystemNotification(reminder);
+                            MarkReminderShown(reminderKey);
+                        }
+                    }
+                    else
+                    {
+                        // 提醒时间未到：正常注册 OS 计划通知
+                        var task = _dbService.GetTaskById(reminder.TaskId);
+                        if (task != null && !task.IsChecked)
+                        {
+                            ScheduleReminderNotification(task, reminder);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CatchUpTodayReminders error: {ex.Message}");
+            }
+        }
+
+        public void EnsureDeadlineReminders(int taskId, DateTime dueDate, bool force = false)
+        {
+            try
+            {
+                // 先清除旧的 Deadline 提醒
+                _dbService.DeleteRemindersByType(taskId, ReminderType.Deadline);
+
+                // 只为今天及未来的截止日生成提醒
+                if (dueDate.Date < DateTime.Today) return;
+
+                var deadlineTimes = new[] { 11, 13, 15 };
+                foreach (var hour in deadlineTimes)
+                {
+                    var reminderTime = dueDate.Date.AddHours(hour);
+                    // force 模式（用户手动开启 toggle）：无视时间，一律创建
+                    // 非 force 模式（自动创建）：只创建未来的提醒时间
+                    if (!force && reminderTime <= DateTime.Now) continue;
+
+                    var reminder = new Reminder
+                    {
+                        TaskId = taskId,
+                        ReminderType = ReminderType.Deadline,
+                        ReminderDateTime = reminderTime,
+                        EnableMultiDayReminders = false,
+                        SameDayIntervalMinutes = 0
+                    };
+                    _dbService.AddReminderWithDetails(reminder);
+                    System.Diagnostics.Debug.WriteLine($"EnsureDeadlineReminders: created {reminderTime:yyyy-MM-dd HH:mm} for task {taskId}, force={force}");
+                }
+
+                // 重新调度该任务的 OS 计划通知
+                ScheduleReminderNotificationsForTask(taskId);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"EnsureDeadlineReminders error: {ex.Message}");
+            }
+        }
+
+        public void RemoveDeadlineReminders(int taskId)
+        {
+            try
+            {
+                _dbService.DeleteRemindersByType(taskId, ReminderType.Deadline);
+                RemoveScheduledReminderNotifications(taskId);
+                // 重新调度（保留用户手动设置的 Custom 提醒）
+                ScheduleReminderNotificationsForTask(taskId);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"RemoveDeadlineReminders error: {ex.Message}");
+            }
+        }
+
+        public bool HasDeadlineReminders(int taskId)
+        {
+            try
+            {
+                var reminders = _dbService.GetRemindersForTask(taskId);
+                return reminders.Any(r => r.ReminderType == ReminderType.Deadline);
+            }
+            catch
+            {
+                return false;
             }
         }
         
@@ -157,43 +278,40 @@ namespace Todo.Services
                 if (today != _lastDateCheck)
                 {
                     _lastDateCheck = today;
+                    _notifiedReminders.Clear();
                     DateChanged?.Invoke();
                 }
 
                 // 自动完成截止日期已过的任务
                 AutoCompleteOverdueTasks();
 
+                // 路1：一次性提醒检查（1分钟窗口）
                 var lookbackWindow = _hasCompletedInitialReminderCheck ? ReminderCatchUpWindow : TimeSpan.Zero;
                 var dueReminders = _dbService.GetDueReminders(now, lookbackWindow);
                 _hasCompletedInitialReminderCheck = true;
-                System.Diagnostics.Debug.WriteLine($"Found {dueReminders.Count} due reminders");
-                
+                System.Diagnostics.Debug.WriteLine($"Found {dueReminders.Count} due reminders (one-time)");
+
                 foreach (var reminder in dueReminders)
                 {
-                    if (IsMutedForToday(reminder.TaskId))
-                    {
-                        continue;
-                    }
+                    if (IsMutedForToday(reminder.TaskId)) continue;
 
                     var reminderKey = $"{reminder.TaskId}_{reminder.ReminderDateTime:yyyyMMddHHmm}";
-                    
-                    System.Diagnostics.Debug.WriteLine($"Processing reminder: TaskId={reminder.TaskId}, ReminderTime={reminder.ReminderDateTime}, Key={reminderKey}");
-                    
                     if (ShouldShowReminder(reminderKey))
                     {
-                        System.Diagnostics.Debug.WriteLine($"Showing notification for reminder {reminderKey}");
+                        System.Diagnostics.Debug.WriteLine($"Showing one-time notification: {reminderKey}");
                         ShowSystemNotification(reminder);
                         MarkReminderShown(reminderKey);
                     }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Reminder {reminderKey} already notified");
-                    }
-                    
-                    if (reminder.EnableMultiDayReminders && reminder.SameDayIntervalMinutes > 0)
-                    {
-                        ScheduleSameDayReminders(reminder);
-                    }
+                }
+
+                // 路2：重复提醒独立检查（不依赖回看窗口）
+                var repeatReminders = _dbService.GetRepeatEnabledReminders();
+                System.Diagnostics.Debug.WriteLine($"Found {repeatReminders.Count} repeat-enabled reminders");
+
+                foreach (var reminder in repeatReminders)
+                {
+                    if (IsMutedForToday(reminder.TaskId)) continue;
+                    ScheduleSameDayReminders(reminder);
                 }
             }
             catch (Exception ex)
@@ -212,8 +330,8 @@ namespace Todo.Services
                 {
                     if (!task.DueDate.HasValue) continue;
 
-                    // 截止日当天必须过了13:00才自动完成，过去的日期直接完成
-                    if (task.DueDate.Value.Date == now.Date && now.Hour < 13)
+                    // 截止日当天必须过了17:00才自动完成，过去的日期直接完成
+                    if (task.DueDate.Value.Date == now.Date && now.Hour < 17)
                     {
                         System.Diagnostics.Debug.WriteLine($"Skipping auto-complete (before 13:00): {task.Id} - {task.Title}");
                         continue;
@@ -229,7 +347,7 @@ namespace Todo.Services
                     if (recurrence != null && recurrence.RecurrenceType != RecurrenceType.None)
                     {
                         var sourceDueDate = task.DueDate ?? recurrence.BaseDate;
-                        var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate);
+                        var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate).Date;
                         var newTask = _dbService.AddTask(task.Title, newDueDate, null, task.ListId);
                         newTask.Description = task.Description;
                         _dbService.UpdateTask(newTask);
@@ -282,42 +400,46 @@ namespace Todo.Services
         {
             if (!reminder.ReminderDateTime.HasValue || reminder.SameDayIntervalMinutes <= 0)
                 return;
-            
+
             try
             {
                 var now = DateTime.Now;
                 var reminderTime = reminder.ReminderDateTime.Value;
-                
+
                 if (reminderTime.Date != now.Date)
                     return;
-                
+
                 var minutesSinceReminder = (int)(now - reminderTime).TotalMinutes;
                 if (minutesSinceReminder < 0)
                     return;
-                
-                var intervalsPassed = minutesSinceReminder / reminder.SameDayIntervalMinutes;
-                var currentIntervalMinutes = (intervalsPassed + 1) * reminder.SameDayIntervalMinutes;
-                
-                var nextReminderTime = reminderTime.AddMinutes(currentIntervalMinutes);
-                
-                if (nextReminderTime.Date == now.Date && nextReminderTime <= now.AddMinutes(1))
-                {
-                    if (IsMutedForToday(reminder.TaskId))
-                    {
-                        return;
-                    }
 
-                    var reminderKey = $"{reminder.TaskId}_{nextReminderTime:yyyyMMddHHmm}";
-                    
-                    if (ShouldShowReminder(reminderKey))
+                var intervalsPassed = minutesSinceReminder / reminder.SameDayIntervalMinutes;
+                if (intervalsPassed < 1)
+                    return;
+
+                // 已过去的那个整点间隔
+                var lastRepeatMinutes = intervalsPassed * reminder.SameDayIntervalMinutes;
+                var lastRepeatTime = reminderTime.AddMinutes(lastRepeatMinutes);
+
+                if (lastRepeatTime.Date != now.Date)
+                    return;
+
+                if (IsMutedForToday(reminder.TaskId))
+                    return;
+
+                var reminderKey = $"{reminder.TaskId}_{lastRepeatTime:yyyyMMddHHmm}";
+
+                if (ShouldShowReminder(reminderKey))
+                {
+                    var task = _dbService.GetTaskById(reminder.TaskId);
+                    if (task != null && !task.IsChecked)
                     {
-                        var task = _dbService.GetTaskById(reminder.TaskId);
-                        if (task != null && !task.IsChecked)
-                        {
-                            var builder = CreateReminderNotificationBuilder(task.Id, reminder.Id, "🔔 再次提醒", task.Title, $"提醒时间: {nextReminderTime:HH:mm}", true);
-                            ShowNotificationOnUIThread(builder.BuildNotification());
-                            MarkReminderShown(reminderKey);
-                        }
+                        var builder = CreateReminderNotificationBuilder(task.Id, reminder.Id, "🔔 再次提醒", task.Title, $"提醒时间: {lastRepeatTime:HH:mm}", true);
+                        var notif = builder.BuildNotification();
+                notif.Tag = $"T{task.Id}_R{reminder.Id}_{reminder.ReminderDateTime:yyyyMMddHHmm}";
+                notif.Group = ReminderNotificationGroup;
+                ShowNotificationOnUIThread(notif);
+                        MarkReminderShown(reminderKey);
                     }
                 }
             }
@@ -471,7 +593,10 @@ namespace Todo.Services
                     task.Title,
                     $"提醒时间: {timeText}",
                     reminder.EnableMultiDayReminders);
-                ShowNotificationOnUIThread(builder.BuildNotification());
+                var notif = builder.BuildNotification();
+                notif.Tag = $"T{task.Id}_R{reminder.Id}_{reminder.ReminderDateTime:yyyyMMddHHmm}";
+                notif.Group = ReminderNotificationGroup;
+                ShowNotificationOnUIThread(notif);
             }
             catch (Exception ex)
             {
@@ -554,7 +679,7 @@ namespace Todo.Services
             }
 
             var sourceDueDate = task.DueDate ?? recurrence.BaseDate;
-            var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate);
+            var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate).Date;
             var newTask = _dbService.AddTask(task.Title, newDueDate, null, task.ListId);
             newTask.Description = task.Description;
             _dbService.UpdateTask(newTask);
@@ -615,6 +740,9 @@ namespace Todo.Services
             {
                 _mutedTodayTasks.Add(GetMutedTodayKey(taskId));
             }
+
+            // 同时移除已注册的 OS 计划通知，防止到点继续弹
+            RemoveScheduledReminderNotifications(taskId);
         }
 
         private bool IsMutedForToday(int taskId)

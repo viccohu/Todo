@@ -218,6 +218,33 @@ namespace Todo
             SetNormalStyle(window, true);
         }
 
+        public static void ApplyCompactWindowStyle(this Window window)
+        {
+            var hwnd = window.GetWindowHandle();
+
+            // 扩展样式：隐藏任务栏 + 不抢焦点 + 移除 APPWINDOW
+            long exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+            exStyle |= (long)WS_EX_TOOLWINDOW;
+            exStyle |= (long)WS_EX_NOACTIVATE;
+            exStyle &= ~(int)WS_EX_APPWINDOW;
+            SetWindowLong(hwnd, GWL_EXSTYLE, (int)exStyle);
+
+            // 移除窗口装饰
+            long style = GetWindowLong(hwnd, GWL_STYLE);
+            style &= ~(int)(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+            SetWindowLong(hwnd, GWL_STYLE, (int)style);
+
+            // 圆角
+            int cornerPreference = DWMWCP_ROUND;
+            DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPreference, sizeof(int));
+
+            var appWindow = GetAppWindow(window);
+            if (appWindow != null)
+            {
+                appWindow.IsShownInSwitchers = false;
+            }
+        }
+
         public static void SetNormalStyle(this Window window, bool resizeToNormal)
         {
             var hwnd = window.GetWindowHandle();

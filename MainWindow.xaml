@@ -446,6 +446,7 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <FontIcon Grid.Column="0" Glyph="&#xE710;" FontSize="18" Foreground="#0078d4" VerticalAlignment="Center"/>
                                         <TextBox x:Name="AddTaskTextBox"
@@ -468,6 +469,27 @@
                                             </TextBox.Resources>
                                         </TextBox>
                                         <Button Grid.Column="2"
+                                                x:Name="AddTaskRecurrenceButton"
+                                                Click="AddTaskRecurrence_Click"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Padding="6,4" AllowFocusOnInteraction="False" IsTabStop="False"
+                                                VerticalAlignment="Center"
+                                                ToolTipService.ToolTip="设置重复">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon x:Name="AddTaskRecurrenceIcon"
+                                                          Glyph="&#xE8FD;"
+                                                          FontSize="22"
+                                                          Foreground="#555"/>
+                                                <TextBlock x:Name="AddTaskRecurrenceText"
+                                                           Text=""
+                                                           Foreground="#0078d4"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           Visibility="Collapsed"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Grid.Column="3"
                                                 x:Name="AddTaskDueDateButton"
                                                 Click="AddTaskDueDate_Click"
                                                 Background="Transparent"
@@ -812,12 +834,21 @@
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <FontIcon Glyph="&#xE715;" FontSize="16" Foreground="#888"/>
+                                                    <FontIcon Glyph="&#xEA8F;" FontSize="16" Foreground="#888"/>
                                                     <TextBlock x:Name="ReminderText" Text="提醒我" Foreground="#ccc" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>
                                             <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
-                                                <Button x:Name="RecurringReminderButton" 
+                                                <ToggleButton x:Name="DeadlineReminderToggle"
+                                                              Click="DeadlineReminderToggle_Click"
+                                                              Background="Transparent"
+                                                              BorderThickness="0"
+                                                              Padding="4"
+                                                              Visibility="Collapsed"
+                                                              ToolTipService.ToolTip="截止日提醒">
+                                                    <FontIcon Glyph="&#xEE93;" FontSize="18" Foreground="#888"/>
+                                                </ToggleButton>
+                                                <Button x:Name="RecurringReminderButton"
                                                         Click="ToggleRecurringReminder_Click"
                                                         Background="Transparent"
                                                         BorderThickness="0"
@@ -920,7 +951,7 @@
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <FontIcon Glyph="&#xE8FD;" FontSize="16" Foreground="#888"/>
+                                                    <FontIcon Glyph="&#xE8EE;" FontSize="16" Foreground="#888"/>
                                                     <TextBlock x:Name="RecurrenceText" Text="重复" Foreground="#ccc" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>
@@ -955,173 +986,6 @@
                     </Grid>
                 </Grid>
             </NavigationView>
-        </Grid>
-
-        <!-- 紧凑模式：固定桌面小窗口 -->
-        <Grid x:Name="CompactContent" Grid.Row="1" Background="#1e1e1e" Visibility="Collapsed"  >
-            <Grid x:Name="DummyTitleBar" Height="0" Width="0" VerticalAlignment="Top" HorizontalAlignment="Left"  />
-            
-            <Grid Padding="0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <!-- 紧凑模式标题栏 -->
-                <Grid Grid.Row="0" Height="38" PointerPressed="CompactTitle_PointerPressed">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="T O  D O" 
-                               Grid.Column="0"
-                               FontSize="18" 
-                               Foreground="White" 
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" 
-                            Click="ToggleDesktopMode_Click" 
-                            Background="Transparent" 
-                            Margin="0,0,12,0"
-                            BorderThickness="0" 
-                            Padding="4"
-                            ToolTipService.ToolTip="恢复正常窗口">
-                        <FontIcon Glyph="&#xE196;" FontSize="14" Foreground="#888"/>
-                    </Button>
-                </Grid>
-
-                <!-- 紧凑模式任务列表 -->
-                <ScrollViewer x:Name="CompactScrollViewer" Grid.Row="1">
-                    <StackPanel>
-                        <ItemsControl x:Name="CompactTasksList">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Margin="12,0,12,6">
-                                        <Border BorderBrush="#333"
-                                                BorderThickness="1"
-                                                CornerRadius="6"
-                                                Background="#262626">
-                                            <Grid>
-                                                <Rectangle Fill="{Binding DueUrgencyBackground}" RadiusX="6" RadiusY="6"/>
-                                                <StackPanel Margin="10,8">
-                                                    <Grid MinHeight="28">
-                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
-                                                            <TextBlock Text="{Binding Title}" Foreground="White" FontSize="13" Margin="4,0,0,0"/>
-                                                        </CheckBox>
-                                                        <TextBlock Text="{Binding DueDateDisplay}"
-                                                                   HorizontalAlignment="Right"
-                                                                   VerticalAlignment="Center"
-                                                                   Foreground="#666"
-                                                                   FontSize="11"/>
-                                                    </Grid>
-                                                    <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <Grid MinHeight="26" Margin="0,2,0,0">
-                                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
-                                                                        <TextBlock Text="{Binding Title}" Foreground="#aaa" FontSize="12"/>
-                                                                    </CheckBox>
-                                                                </Grid>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                </StackPanel>
-                                            </Grid>
-                                        </Border>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <Button x:Name="CompactCompletedButton" 
-                                Margin="12,10,0,10" 
-                                Background="#262626" 
-                                BorderThickness="0" 
-                                CornerRadius="4" 
-                                Padding="12,6" 
-                                Click="CompactToggleCompleted_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <FontIcon Glyph="&#xE787;" FontSize="12" Foreground="#888"/>
-                                <TextBlock x:Name="CompactCompletedText" Text="已完成" FontSize="12" Foreground="#888"/>
-                                <FontIcon x:Name="CompactCompletedArrow" Glyph="&#xE70D;" FontSize="10" Foreground="#888"/>
-                            </StackPanel>
-                        </Button>
-
-                        <ItemsControl x:Name="CompactCompletedTasksList" Visibility="Collapsed">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Margin="0,0,0,6">
-                                        <Border BorderBrush="#333"
-                                                BorderThickness="1"
-                                                CornerRadius="6"
-                                                Background="#262626"
-                                                Opacity="0.6">
-                                            <Grid>
-                                                <Rectangle Fill="{Binding DueUrgencyBackground}" RadiusX="6" RadiusY="6"/>
-                                                <Grid Margin="10,8">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="4"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <StackPanel Grid.Column="0">
-                                                        <Grid MinHeight="28">
-                                                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="TaskCheckBox_Click">
-                                                                <TextBlock Text="{Binding Title}" TextDecorations="Strikethrough" Foreground="#888" FontSize="13" Margin="4,0,0,0"/>
-                                                            </CheckBox>
-                                                            <TextBlock Text="{Binding DueDateDisplay}"
-                                                                       HorizontalAlignment="Right"
-                                                                       VerticalAlignment="Center"
-                                                                       Foreground="#555"
-                                                                       FontSize="11"/>
-                                                        </Grid>
-                                                        <ItemsControl ItemsSource="{Binding SubTasks, Mode=OneWay}" Margin="24,4,0,0">
-                                                            <ItemsControl.ItemTemplate>
-                                                                <DataTemplate>
-                                                                    <Grid MinHeight="26" Margin="0,2,0,0">
-                                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
-                                                                            <TextBlock Text="{Binding Title}"
-                                                                                       TextDecorations="Strikethrough"
-                                                                                       Foreground="#666"
-                                                                                       FontSize="12"/>
-                                                                        </CheckBox>
-                                                                    </Grid>
-                                                                </DataTemplate>
-                                                            </ItemsControl.ItemTemplate>
-                                                        </ItemsControl>
-                                                    </StackPanel>
-                                                    <Rectangle Grid.Column="1"
-                                                               Fill="{Binding CompletionIndicatorBrush}"
-                                                               VerticalAlignment="Stretch"
-                                                               RadiusX="2" RadiusY="2"
-                                                               Margin="0,2"/>
-                                                </Grid>
-                                            </Grid>
-                                        </Border>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <!-- 展开/收起按钮 -->
-                <Button x:Name="CompactToggleButton" 
-                        Grid.Row="2" 
-                        Click="CompactToggle_Click"
-                        Visibility="Visible"
-                        HorizontalAlignment="Stretch"
-                        Background="#262626"
-                        BorderThickness="1"
-                        BorderBrush="#333"
-                        CornerRadius="0"
-                        Padding="0,8"
-                        Margin="0,0,0,0">
-                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                        <FontIcon x:Name="CompactToggleIcon" Glyph="&#xE96E;" FontSize="12" Foreground="#888"/>
-                    </StackPanel>
-                </Button>
-            </Grid>
         </Grid>
     </Grid>
 </Window>

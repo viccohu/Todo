@@ -27,10 +27,8 @@ namespace Todo
     public sealed partial class MainWindow : Window
     {
         private bool _isDesktopMode = false;
-        private bool _isCompactMinimized = false;
         private AppWindow? _appWindow;
         private bool _showCompleted = false;
-        private bool _compactShowCompleted = false;
         private bool _isDrawerOpen = false;
         private DatabaseService _dbService = new DatabaseService();
         private TaskItem? _selectedTask;
@@ -51,6 +49,7 @@ namespace Todo
         private string _currentNavTag = "Important";
         private int? _currentListId = null;
         private DateTimeOffset? _pendingDueDate = null;
+        private RecurrenceType _pendingRecurrence = RecurrenceType.None;
         private bool _isDatePickerOpen = false;
         private List<TaskList> _standaloneLists = new List<TaskList>();
 
@@ -114,6 +113,8 @@ namespace Todo
             NavView.SelectedItem = NavView.MenuItems[1];
             LoadTasksForCurrentNav();
 
+            UpdatePinButtonState();
+
             this.Closed += MainWindow_Closed;
         }
 
@@ -126,6 +127,8 @@ namespace Todo
             }
 
             // 清理桌面固定模式资源
+            _taskCompactWindow?.Close();
+            _notepadCompactWindow?.Close();
             WindowHelper.ShutdownDesktopPin();
         }
 
@@ -641,6 +644,7 @@ namespace Todo
         private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
             EnsureNotepadPreviewMode();
+            UpdatePinButtonState();
 
             if (_isDrawerOpen)
             {
@@ -2250,6 +2254,88 @@ namespace Todo
             }
         }
 
+        private void DeadlineReminderToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedTask?.DueDate == null) return;
+
+            if (DeadlineReminderToggle.IsChecked == true)
+            {
+                ReminderService.Instance.EnsureDeadlineReminders(_selectedTask.Id, _selectedTask.DueDate.Value, force: true);
+            }
+            else
+            {
+                ReminderService.Instance.RemoveDeadlineReminders(_selectedTask.Id);
+            }
+
+            UpdateDeadlineReminderToggleAppearance();
+
+            var reminders = _dbService.GetRemindersForTask(_selectedTask.Id);
+            _selectedTask.Reminders.Clear();
+            foreach (var r in reminders)
+                _selectedTask.Reminders.Add(r);
+            RefreshSelectedTaskReminderControls();
+        }
+
+        private void UpdateDeadlineReminderToggleAppearance()
+        {
+            if (DeadlineReminderToggle.Content is FontIcon icon)
+            {
+                icon.Foreground = DeadlineReminderToggle.IsChecked == true
+                    ? new SolidColorBrush(Microsoft.UI.Colors.Black)
+                    : new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0x88, 0x88, 0x88));
+            }
+        }
+
+        private void AddTaskRecurrence_Click(object sender, RoutedEventArgs e)
+        {
+            var flyout = new MenuFlyout();
+
+            var noneItem = new MenuFlyoutItem { Text = "不重复" };
+            noneItem.Click += (s, args) =>
+            {
+                _pendingRecurrence = RecurrenceType.None;
+                ResetPendingRecurrence();
+            };
+            flyout.Items.Add(noneItem);
+
+            var dailyItem = new MenuFlyoutItem { Text = "每天", Icon = new SymbolIcon(Symbol.CalendarDay) };
+            dailyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Daily, "每天");
+
+            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = new SymbolIcon(Symbol.CalendarWeek) };
+            weeklyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Weekly, "每周");
+
+            var monthlyItem = new MenuFlyoutItem { Text = "每月" };
+            monthlyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Monthly, "每月");
+
+            var yearlyItem = new MenuFlyoutItem { Text = "每年" };
+            yearlyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Yearly, "每年");
+
+            flyout.Items.Add(dailyItem);
+            flyout.Items.Add(weeklyItem);
+            flyout.Items.Add(monthlyItem);
+            flyout.Items.Add(yearlyItem);
+
+            flyout.ShowAt(AddTaskRecurrenceButton);
+        }
+
+        private void SetPendingRecurrence(RecurrenceType type, string label)
+        {
+            _pendingRecurrence = type;
+            AddTaskRecurrenceIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212));
+            AddTaskRecurrenceText.Text = label;
+            AddTaskRecurrenceText.Visibility = Visibility.Visible;
+            ToolTipService.SetToolTip(AddTaskRecurrenceButton, $"重复: {label}");
+        }
+
+        private void ResetPendingRecurrence()
+        {
+            _pendingRecurrence = RecurrenceType.None;
+            AddTaskRecurrenceIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 85, 85, 85));
+            AddTaskRecurrenceText.Visibility = Visibility.Collapsed;
+            ToolTipService.SetToolTip(AddTaskRecurrenceButton, "设置重复");
+        }
+
+
         private void ShowRecurrenceMenu_Click(object sender, RoutedEventArgs e)
         {
             var flyout = new MenuFlyout();
@@ -2317,142 +2403,170 @@ namespace Todo
             }
         }
 
+        private CompactWindow? _taskCompactWindow;
+        private NotepadCompactWindow? _notepadCompactWindow;
+
+        private bool IsCurrentPageCompactSupported =>
+            _currentNavTag is "Important" or "Daily" or "Weekly" or "Monthly"
+                or "StandaloneList" or "GroupList" or "Group" or "Notepad";
+
+        private bool IsCurrentPageCompactOpen =>
+            _currentNavTag == "Notepad" ? _notepadCompactWindow != null : _taskCompactWindow != null;
+
         private void ToggleDesktopMode_Click(object sender, RoutedEventArgs e)
         {
-            _isDesktopMode = !_isDesktopMode;
-            if (_isDesktopMode)
+            if (!IsCurrentPageCompactSupported) return;
+
+            if (IsCurrentPageCompactOpen)
             {
-                EnterPinnedMode();
+                ExitPinnedMode();
             }
             else
             {
-                ExitPinnedMode();
+                EnterPinnedMode();
             }
         }
 
         private void EnterPinnedMode()
         {
-            if (_isAnimating) return;
-            _isAnimating = true;
-            CloseDrawer(false);
+            if (IsCurrentPageCompactOpen) return;
 
-            // 设置固定模式样式
-            this.SetPinnedStyle(400, 500);
+            var yOffset = 40;
+            if (_taskCompactWindow != null && _currentNavTag == "Notepad")
+                yOffset = 40 + 480 + 12;
+            else if (_notepadCompactWindow != null && _currentNavTag != "Notepad")
+                yOffset = 40 + 480 + 12;
 
-            NormalContent.Visibility = Visibility.Collapsed;
-            CompactContent.Visibility = Visibility.Visible;
+            if (_currentNavTag == "Notepad")
+            {
+                _notepadCompactWindow = new NotepadCompactWindow(_dbService, yOffset);
+                _notepadCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
+                _notepadCompactWindow.ExitRequested += () =>
+                {
+                    _notepadCompactWindow?.Close();
+                    _notepadCompactWindow = null;
+                    RepositionCompactWindows();
+                    UpdatePinButtonState();
+                };
+                _notepadCompactWindow.Closed += (s, e) =>
+                {
+                    _notepadCompactWindow = null;
+                    RepositionCompactWindows();
+                    UpdatePinButtonState();
+                };
+                _notepadCompactWindow.Activate();
+            }
+            else
+            {
+                _taskCompactWindow = new CompactWindow(Tasks, CompletedTasks, _dbService, yOffset);
+                _taskCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
+                _taskCompactWindow.ExitRequested += () =>
+                {
+                    _taskCompactWindow?.Close();
+                    _taskCompactWindow = null;
+                    RepositionCompactWindows();
+                    UpdatePinButtonState();
+                };
+                _taskCompactWindow.Closed += (s, e) =>
+                {
+                    _taskCompactWindow = null;
+                    RepositionCompactWindows();
+                    UpdatePinButtonState();
+                };
+                _taskCompactWindow.Activate();
+            }
 
-            CompactTasksList.ItemsSource = null;
-            CompactTasksList.ItemsSource = Tasks;
-            CompactCompletedTasksList.ItemsSource = null;
-            CompactCompletedTasksList.ItemsSource = CompletedTasks;
+            UpdatePinButtonState();
+        }
 
-            AppTitleBar.Visibility = Visibility.Collapsed;
-            SetTitleBar(DummyTitleBar);
-            RootGrid.RowDefinitions[0].Height = new GridLength(0);
+        private void OnCompactWindowHeightChanged(int newHeight)
+        {
+            RepositionCompactWindows();
+        }
 
-            CompactScrollViewer.Visibility = Visibility.Visible;
-            CompactToggleButton.Visibility = Visibility.Visible;
-            CompactToggleIcon.Glyph = "\uE96E";
-            _isCompactMinimized = false;
+        private void RepositionCompactWindows()
+        {
+            const int x = 1500;
+            const int topY = 40;
+            const int gap = 12;
+            var appWindow = this.AppWindow;
 
-            PinIcon.Glyph = "\uE196";
-            _isAnimating = false;
+            // 确定哪一个是上方窗口（先创建的在上面）
+            if (_taskCompactWindow != null && _notepadCompactWindow != null)
+            {
+                // 任务窗口在上，记事本在下
+                var taskAppWindow = _taskCompactWindow.AppWindow;
+                var notepadAppWindow = _notepadCompactWindow.AppWindow;
+
+                if (taskAppWindow != null)
+                {
+                    taskAppWindow.MoveAndResize(new Windows.Graphics.RectInt32
+                    {
+                        X = x, Y = topY,
+                        Width = taskAppWindow.Size.Width,
+                        Height = taskAppWindow.Size.Height
+                    });
+                }
+
+                if (notepadAppWindow != null)
+                {
+                    var taskHeight = taskAppWindow?.Size.Height ?? 480;
+                    notepadAppWindow.MoveAndResize(new Windows.Graphics.RectInt32
+                    {
+                        X = x, Y = topY + taskHeight + gap,
+                        Width = notepadAppWindow.Size.Width,
+                        Height = notepadAppWindow.Size.Height
+                    });
+                }
+            }
+            else if (_taskCompactWindow != null)
+            {
+                var w = _taskCompactWindow.AppWindow;
+                if (w != null)
+                    w.MoveAndResize(new Windows.Graphics.RectInt32
+                    {
+                        X = x, Y = topY,
+                        Width = w.Size.Width,
+                        Height = w.Size.Height
+                    });
+            }
+            else if (_notepadCompactWindow != null)
+            {
+                var w = _notepadCompactWindow.AppWindow;
+                if (w != null)
+                    w.MoveAndResize(new Windows.Graphics.RectInt32
+                    {
+                        X = x, Y = topY,
+                        Width = w.Size.Width,
+                        Height = w.Size.Height
+                    });
+            }
         }
 
         private void ExitPinnedMode()
         {
-            if (_isAnimating) return;
-            _isAnimating = true;
-
-            // 直接恢复正常模式样式（不使用动画）
-            this.SetNormalStyle();
-
-            NormalContent.Visibility = Visibility.Visible;
-            CompactContent.Visibility = Visibility.Collapsed;
-
-            AppTitleBar.Visibility = Visibility.Visible;
-            SetTitleBar(AppTitleBar);
-            RootGrid.RowDefinitions[0].Height = new GridLength(32);
-
-            PinIcon.Glyph = "\uE718";
-
-            _isAnimating = false;
-        }
-
-        private void CompactToggleCompleted_Click(object sender, RoutedEventArgs e)
-        {
-            _compactShowCompleted = !_compactShowCompleted;
-            CompactCompletedTasksList.Visibility = _compactShowCompleted ? Visibility.Visible : Visibility.Collapsed;
-            CompactCompletedArrow.Glyph = _compactShowCompleted ? "\uE70E" : "\uE70D";
-        }
-
-        private async void CompactToggle_Click(object sender, RoutedEventArgs e)
-        {
-            if (_isAnimating) return;
-            if (!_isCompactMinimized)
+            if (_currentNavTag == "Notepad")
             {
-                _isAnimating = true;
-                // 先播放收起动画
-                await AnimateWindowSize(400, 500, 400, 90, 200);
-                // 动画结束后再隐藏内容，修改图标
-                CompactScrollViewer.Visibility = Visibility.Collapsed;
-                CompactToggleIcon.Glyph = "\uE96D"; // 向下箭头
-                _isCompactMinimized = true;
-                _isAnimating = false;
+                _notepadCompactWindow?.Close();
+                _notepadCompactWindow = null;
             }
             else
             {
-                _isAnimating = true;
-                // 先显示内容，修改图标
-                CompactScrollViewer.Visibility = Visibility.Visible;
-                CompactToggleIcon.Glyph = "\uE96E"; // 向上箭头
-                // 再播放展开动画
-                await AnimateWindowSize(400, 90, 400, 500, 200);
-                _isCompactMinimized = false;
-                _isAnimating = false;
+                _taskCompactWindow?.Close();
+                _taskCompactWindow = null;
             }
+
+            UpdatePinButtonState();
         }
 
-        private void CompactTitle_PointerPressed(object sender, PointerRoutedEventArgs e)
+        private void UpdatePinButtonState()
         {
-            if (_isCompactMinimized)
-            {
-                CompactToggle_Click(this, new RoutedEventArgs());
-            }
+            var supported = IsCurrentPageCompactSupported;
+            PinButton.IsEnabled = supported;
+            PinButton.Opacity = supported ? 1 : 0.4;
+            PinIcon.Glyph = IsCurrentPageCompactOpen ? "" : "";
         }
 
-        /// <summary>
-        /// 平滑动画调整窗口尺寸
-        /// </summary>
-        private async Task AnimateWindowSize(int fromWidth, int fromHeight, int toWidth, int toHeight, int durationMs)
-        {
-            const int frameDurationMs = 16; // 60fps
-            int totalFrames = (int)Math.Ceiling((double)durationMs / frameDurationMs);
-
-            this.BeginAnimation();
-
-            for (int i = 1; i <= totalFrames; i++)
-            {
-                // 使用缓动函数 (Ease Out)
-                double t = (double)i / totalFrames;
-                double easeT = 1 - Math.Pow(1 - t, 3); // Cubic ease out
-
-                int currentWidth = fromWidth + (int)Math.Round((toWidth - fromWidth) * easeT);
-                int currentHeight = fromHeight + (int)Math.Round((toHeight - fromHeight) * easeT);
-
-                if (_isDesktopMode)
-                {
-                    this.AnimateResizePinned(currentWidth, currentHeight);
-                }
-
-                await Task.Delay(frameDurationMs);
-            }
-
-            this.EndAnimation(toWidth, toHeight);
-        }
-
-       
 
         #region Keyboard Helper
 

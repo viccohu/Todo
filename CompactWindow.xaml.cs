@@ -45,6 +45,10 @@ namespace Todo
         {
             this.ApplyCompactWindowStyle();
 
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            var wasMinimized = settings.Values.TryGetValue("Compact_TaskMinimized", out var val) && val is true;
+            _isMinimized = wasMinimized;
+
             var appWindow = this.AppWindow;
             if (appWindow != null)
             {
@@ -53,10 +57,23 @@ namespace Todo
                     X = 1500,
                     Y = yOffset,
                     Width = 400,
-                    Height = 480
+                    Height = wasMinimized ? 32 : 480
                 });
             }
+
+            if (wasMinimized)
+            {
+                CompactScrollViewer.Visibility = Visibility.Collapsed;
+                CompactToggleIcon.Glyph = "";
+            }
         }
+
+        private void SaveMinimizedState()
+        {
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            settings.Values["Compact_TaskMinimized"] = _isMinimized;
+        }
+
 
         private void RestoreButton_Click(object sender, RoutedEventArgs e)
         {
@@ -69,6 +86,11 @@ namespace Todo
             {
                 ToggleExpand_Click(this, new RoutedEventArgs());
             }
+        }
+
+        private void TitleBar_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            ToggleExpand_Click(this, new RoutedEventArgs());
         }
 
         private void TaskCheckBox_Click(object sender, RoutedEventArgs e)
@@ -161,20 +183,22 @@ namespace Todo
             if (!_isMinimized)
             {
                 _isAnimating = true;
-                await AnimateWindowSize(480, 90, 200);
+                await AnimateWindowSize(480, 40, 200);
                 CompactScrollViewer.Visibility = Visibility.Collapsed;
-                CompactToggleIcon.Glyph = "";
+                CompactToggleIcon.Glyph = "";
                 _isMinimized = true;
                 _isAnimating = false;
+                SaveMinimizedState();
             }
             else
             {
                 _isAnimating = true;
                 CompactScrollViewer.Visibility = Visibility.Visible;
-                CompactToggleIcon.Glyph = "";
-                await AnimateWindowSize(90, 480, 200);
+                CompactToggleIcon.Glyph = "";
+                await AnimateWindowSize(40, 480, 200);
                 _isMinimized = false;
                 _isAnimating = false;
+                SaveMinimizedState();
             }
         }
 

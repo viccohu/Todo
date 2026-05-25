@@ -16,17 +16,15 @@
             </Grid.RowDefinitions>
 
             <!-- 标题栏 -->
-            <Grid Grid.Row="0" Height="38" PointerPressed="TitleBar_PointerPressed">
+            <Grid Grid.Row="0" Height="32" PointerPressed="TitleBar_PointerPressed" DoubleTapped="TitleBar_DoubleTapped">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="T O  D O"
-                           Grid.Column="0"
-                           FontSize="18"
-                           Foreground="White"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+                    <ImageIcon Source="ms-appx:///Assets/icons/white/重要任务.svg" Width="18" Height="18"/>
+                    <TextBlock Text="TO DO" FontSize="14" Foreground="#ccc" VerticalAlignment="Center"/>
+                </StackPanel>
                 <Button Grid.Column="1"
                         Click="RestoreButton_Click"
                         Background="Transparent"
@@ -162,7 +160,7 @@
                     BorderThickness="1"
                     BorderBrush="#333"
                     CornerRadius="0"
-                    Padding="0,8"
+                    Padding="0,0"
                     Margin="0,0,0,0">
                 <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
                     <FontIcon x:Name="CompactToggleIcon" Glyph="&#xE96E;" FontSize="12" Foreground="#888"/>

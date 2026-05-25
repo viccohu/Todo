@@ -333,11 +333,11 @@ namespace Todo.Services
                     // 截止日当天必须过了17:00才自动完成，过去的日期直接完成
                     if (task.DueDate.Value.Date == now.Date && now.Hour < 17)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Skipping auto-complete (before 13:00): {task.Id} - {task.Title}");
+                        AppLog.AutoComplete($"SKIP 今日{now.Hour}:{now.Minute:00}未到17点 | Task#{task.Id} '{task.Title}' Due={task.DueDate:yyyy-MM-dd}");
                         continue;
                     }
 
-                    System.Diagnostics.Debug.WriteLine($"Auto-completing overdue task: {task.Id} - {task.Title}, DueDate={task.DueDate}");
+                    AppLog.AutoComplete($"DONE Task#{task.Id} '{task.Title}' Due={task.DueDate:yyyy-MM-dd} IsPast={task.DueDate.Value.Date < now.Date}");
                     _dbService.UpdateTaskAutoCompleted(task.Id);
                     RemoveScheduledReminderNotifications(task.Id);
                     ShowTaskCompletedNotification(task.Title);

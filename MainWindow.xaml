@@ -71,19 +71,19 @@
                 <NavigationView.MenuItems>
                     <NavigationViewItem Content="记事本" Tag="Notepad">
                         <NavigationViewItem.Icon>
-                            <FontIcon Glyph="&#xE70F;"/>
+                            <ImageIcon Source="ms-appx:///Assets/icons/white/记事本.svg" />
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
                     
                     <NavigationViewItem Content="重要任务" Tag="Important">
                         <NavigationViewItem.Icon>
-                            <SymbolIcon Symbol="Favorite"/>
+                            <ImageIcon Source="ms-appx:///Assets/icons/white/重要任务.svg" />
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
                     
                     <NavigationViewItem x:Name="RecurringNavItem" Content="例行任务" Tag="Recurring" IsExpanded="True">
                         <NavigationViewItem.Icon>
-                            <SymbolIcon Symbol="Clock"/>
+                            <ImageIcon Source="ms-appx:///Assets/icons/white/例行任务.svg"/>
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
                     
@@ -111,7 +111,7 @@
                                 HorizontalContentAlignment="Center"
                                 Margin="0,0,0,0">
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
+                                <ImageIcon Source="ms-appx:///Assets/icons/white/新建任务列表.svg" Width="16" Height="16"/>
                                 <TextBlock Text="新建列表" FontSize="12" Foreground="#ccc"/>
                             </StackPanel>
                         </Button>
@@ -126,7 +126,7 @@
                                 HorizontalContentAlignment="Center"
                                 Margin="4,0,0,0">
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
+                                <ImageIcon Source="ms-appx:///Assets/icons/white/新建分组.svg" Width="16" Height="16"/>
                                 <TextBlock Text="新建分组" FontSize="12" Foreground="#ccc"/>
                             </StackPanel>
                         </Button>
@@ -150,7 +150,7 @@
 
                         <!-- 页面标题 -->
                         <StackPanel x:Name="PageHeader" Grid.Row="0" Orientation="Horizontal" Spacing="15" Margin="40,20,40,20">
-                            <FontIcon x:Name="PageIcon" Glyph="&#xE8C8;" FontSize="28" Foreground="White"/>
+                            <ImageIcon x:Name="PageIcon" Source="ms-appx:///Assets/icons/white/重要任务.svg" Width="28" Height="28"/>
                             <TextBlock x:Name="PageTitle" Text="重要任务" FontSize="28" FontWeight="SemiBold" Foreground="White"/>
                         </StackPanel>
 
@@ -337,7 +337,7 @@
                                         Padding="8,4" 
                                         Click="ToggleCompleted_Click">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="&#xE787;" FontSize="12"/>
+                                        <ImageIcon Source="ms-appx:///Assets/icons/white/已完成.svg" Width="12" Height="12"/>
                                         <TextBlock x:Name="CompletedText" Text="已完成" FontSize="12"/>
                                         <FontIcon x:Name="CompletedArrow" Glyph="&#xE70D;" FontSize="10"/>
                                     </StackPanel>
@@ -441,14 +441,14 @@
                                         HorizontalAlignment="Stretch"
                                         Background="#1e1e1e"
                                         Visibility="Collapsed">
-                                    <Grid Margin="10,0">
+                                    <Grid Margin="22,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <FontIcon Grid.Column="0" Glyph="&#xE710;" FontSize="18" Foreground="#0078d4" VerticalAlignment="Center"/>
+                                        <ImageIcon Grid.Column="0" Source="ms-appx:///Assets/icons/white/任务列表.svg" Width="18" Height="18" VerticalAlignment="Center" />
                                         <TextBox x:Name="AddTaskTextBox"
                                                  Grid.Column="1"
                                                  Background="Transparent"
@@ -478,7 +478,7 @@
                                                 ToolTipService.ToolTip="设置重复">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon x:Name="AddTaskRecurrenceIcon"
-                                                          Glyph="&#xE8FD;"
+                                                          Glyph="&#xE8EE;"
                                                           FontSize="22"
                                                           Foreground="#555"/>
                                                 <TextBlock x:Name="AddTaskRecurrenceText"
@@ -498,10 +498,7 @@
                                                 VerticalAlignment="Center"
                                                 ToolTipService.ToolTip="设置截止日期">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <FontIcon x:Name="AddTaskDueDateIcon"
-                                                          Glyph="&#xE787;"
-                                                          FontSize="22"
-                                                          Foreground="#555"/>
+                                                <ImageIcon x:Name="AddTaskDueDateIcon" Source="ms-appx:///Assets/icons/white/日历.svg" Width="22" Height="22"/>
                                                 <TextBlock x:Name="AddTaskDueDateText"
                                                            Text=""
                                                            Foreground="#0078d4"
@@ -635,7 +632,7 @@
                                 </Grid>
 
                                 <!-- 子任务区（背景框） -->
-                                <Border Background="#222" CornerRadius="0,0,8,8" Padding="8" Margin="0,0,0,12">
+                                <Border Background="#222" CornerRadius="0,0,8,8" Padding="8" Margin="0,0,0,12" MinHeight="50">
                                     <StackPanel Spacing="0">
                                         <!-- 子任务列表 -->
                                         <ItemsControl x:Name="SubTasksList">
@@ -712,7 +709,7 @@
                                                     BorderThickness="0" 
                                                     Padding="0,4">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#0078d4"/>
+                                                    <ImageIcon Source="ms-appx:///Assets/icons/white/任务列表.svg" Width="22" Height="18"/>
                                                     <TextBlock Text="添加子任务" Foreground="#0078d4" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>
@@ -796,7 +793,7 @@
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <FontIcon Glyph="&#xE787;" FontSize="16" Foreground="#888"/>
+                                                    <ImageIcon Source="ms-appx:///Assets/icons/white/日历.svg" Width="16" Height="16"/>
                                                     <TextBlock x:Name="DueDateText" Text="截止日期" Foreground="#ccc" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>

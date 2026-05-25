@@ -51,6 +51,7 @@ namespace Todo
         private DateTimeOffset? _pendingDueDate = null;
         private RecurrenceType _pendingRecurrence = RecurrenceType.None;
         private bool _isDatePickerOpen = false;
+        private bool _isRecurrenceMenuOpen = false;
         private List<TaskList> _standaloneLists = new List<TaskList>();
 
         private SystemTrayService? _trayService;
@@ -63,6 +64,7 @@ namespace Todo
         public MainWindow()
         {
             this.InitializeComponent();
+            AppLog.Info("App started");
             InitializeCustomTitleBar();
             InitializeCalendarBounds();
             LoadCustomGroups();
@@ -110,8 +112,12 @@ namespace Todo
                 dateFlyout.Closed += (s, e) => _isDatePickerOpen = false;
             }
 
-            NavView.SelectedItem = NavView.MenuItems[1];
             LoadTasksForCurrentNav();
+
+            // 恢复上次的固定模式状态（必须在 NavView.SelectedItem 之前，避免被覆盖）
+            RestoreCompactState();
+
+            NavView.SelectedItem = NavView.MenuItems[1];
 
             UpdatePinButtonState();
 
@@ -259,14 +265,20 @@ namespace Todo
                     _ => ""
                 };
 
+                var iconPath = category switch
+                {
+                    ListCategory.Daily => AppIcons.Daily,
+                    ListCategory.Weekly => AppIcons.Weekly,
+                    ListCategory.Monthly => AppIcons.Monthly,
+                    _ => ""
+                };
+
                 var item = new NavigationViewItem
                 {
                     Content = list.Name,
-                    Tag = tag
+                    Tag = tag,
+                    Icon = AppIcons.Create(iconPath, 16)
                 };
-                item.Icon = category == ListCategory.Daily
-                    ? new SymbolIcon(Symbol.CalendarDay)
-                    : new FontIcon { Glyph = "" };
                 item.ContextFlyout = CreateBuiltInListContextFlyout(list);
                 RecurringNavItem.MenuItems.Add(item);
             }
@@ -285,10 +297,20 @@ namespace Todo
         {
             try
             {
+                var now = DateTime.Now;
                 var overdueTasks = _dbService.GetOverdueUncheckedTasks();
                 foreach (var task in overdueTasks)
                 {
-                    System.Diagnostics.Debug.WriteLine($"MainWindow: Auto-completing overdue task {task.Id} - {task.Title}");
+                    if (!task.DueDate.HasValue) continue;
+
+                    // 今天截止必须等到 17:00，过去截止立即完成
+                    if (task.DueDate.Value.Date == now.Date && now.Hour < 17)
+                    {
+                        AppLog.AutoComplete($"SKIP 今日{now.Hour}:{now.Minute:00}未到17点 | Task#{task.Id} '{task.Title}' Due={task.DueDate:yyyy-MM-dd}");
+                        continue;
+                    }
+
+                    AppLog.AutoComplete($"DONE Task#{task.Id} '{task.Title}' Due={task.DueDate:yyyy-MM-dd} IsPast={task.DueDate.Value.Date < now.Date}");
                     _dbService.UpdateTaskAutoCompleted(task.Id);
                     ReminderService.Instance.RemoveScheduledReminderNotifications(task.Id);
 
@@ -389,7 +411,7 @@ namespace Todo
                     Content = list.Name,
                     Tag = $"StandaloneList_{list.Id}"
                 };
-                listItem.Icon = new FontIcon { Glyph = "\uE8FD" };
+                listItem.Icon = AppIcons.Create(AppIcons.TaskList, 16);
                 listItem.ContextFlyout = CreateListContextFlyout(list);
                 NavView.MenuItems.Add(listItem);
             }
@@ -402,7 +424,7 @@ namespace Todo
                     Tag = $"Group_{group.Id}",
                     IsExpanded = group.IsExpanded
                 };
-                groupItem.Icon = new FontIcon { Glyph = "\uE8B7" };
+                groupItem.Icon = AppIcons.Create(AppIcons.Group, 16);
                 groupItem.ContextFlyout = CreateGroupContextFlyout(group);
 
                 foreach (var list in group.Lists)
@@ -412,7 +434,7 @@ namespace Todo
                         Content = list.Name,
                         Tag = $"List_{list.Id}"
                     };
-                    listItem.Icon = new FontIcon { Glyph = "\uE8FD" };
+                    listItem.Icon = AppIcons.Create(AppIcons.TaskList, 16);
                     listItem.ContextFlyout = CreateListContextFlyout(list);
                     groupItem.MenuItems.Add(listItem);
                 }
@@ -644,7 +666,6 @@ namespace Todo
         private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
             EnsureNotepadPreviewMode();
-            UpdatePinButtonState();
 
             if (_isDrawerOpen)
             {
@@ -664,7 +685,7 @@ namespace Todo
                         _currentListId = listId;
                     }
                     PageTitle.Text = item.Content?.ToString() ?? "列表";
-                    PageIcon.Glyph = "\uE8FD";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.TaskList));
                     ShowTaskListContent();
                     LoadTasksForCurrentNav();
                     return;
@@ -679,7 +700,7 @@ namespace Todo
                         _currentListId = listId;
                     }
                     PageTitle.Text = item.Content?.ToString() ?? "列表";
-                    PageIcon.Glyph = "\uE8FD";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.TaskList));
                     ShowTaskListContent();
                     LoadTasksForCurrentNav();
                     return;
@@ -694,7 +715,7 @@ namespace Todo
                         _currentListId = groupId;
                     }
                     PageTitle.Text = item.Content?.ToString() ?? "分组";
-                    PageIcon.Glyph = "\uE8B7";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Group));
                     ShowTaskListContent();
                     LoadTasksForCurrentNav();
                     return;
@@ -707,39 +728,42 @@ namespace Todo
                     case "Notepad":
                         _currentNavTag = "Notepad";
                         PageTitle.Text = "记事本";
-                        PageIcon.Glyph = "\uE70F";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Notepad));
                         ShowNotepadContent();
                         break;
                     case "Important":
                         _currentNavTag = "Important";
                         PageTitle.Text = "重要任务";
-                        PageIcon.Glyph = "\uE8C8";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Important));
                         ShowTaskListContent();
                         LoadTasksForCurrentNav();
                         break;
                     case "Daily":
                         _currentNavTag = "Daily";
                         PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Daily)?.Name ?? "日常";
-                        PageIcon.Glyph = "\uE823";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Daily));
                         ShowTaskListContent();
                         LoadTasksForCurrentNav();
                         break;
                     case "Weekly":
                         _currentNavTag = "Weekly";
                         PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Weekly)?.Name ?? "周常";
-                        PageIcon.Glyph = "\uE817";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Weekly));
                         ShowTaskListContent();
                         LoadTasksForCurrentNav();
                         break;
                     case "Monthly":
                         _currentNavTag = "Monthly";
                         PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Monthly)?.Name ?? "月常";
-                        PageIcon.Glyph = "\uE817";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Monthly));
                         ShowTaskListContent();
                         LoadTasksForCurrentNav();
                         break;
                 }
             }
+
+            UpdatePinButtonState();
+            SaveCompactState();
         }
 
         private void UpdatePageHeader()
@@ -748,32 +772,32 @@ namespace Todo
             {
                 case "Notepad":
                     PageTitle.Text = "记事本";
-                    PageIcon.Glyph = "\uE70F";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Notepad));
                     break;
                 case "Important":
                     PageTitle.Text = "重要任务";
-                    PageIcon.Glyph = "\uE8C8";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Important));
                     break;
                 case "Daily":
                     PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Daily)?.Name ?? "日常";
-                    PageIcon.Glyph = "\uE823";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Daily));
                     break;
                 case "Weekly":
                     PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Weekly)?.Name ?? "周常";
-                    PageIcon.Glyph = "\uE817";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Weekly));
                     break;
                 case "Monthly":
                     PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Monthly)?.Name ?? "月常";
-                    PageIcon.Glyph = "\uE817";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Monthly));
                     break;
                 case "StandaloneList":
                 case "GroupList":
                     PageTitle.Text = "列表";
-                    PageIcon.Glyph = "\uE8FD";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.TaskList));
                     break;
                 case "Group":
                     PageTitle.Text = "分组";
-                    PageIcon.Glyph = "\uE8B7";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Group));
                     break;
             }
         }
@@ -1601,7 +1625,7 @@ namespace Todo
                     return;
 
                 if (string.IsNullOrWhiteSpace(AddTaskTextBox.Text) && _pendingDueDate == null
-                    && !_isDatePickerOpen)
+                    && !_isDatePickerOpen && !_isRecurrenceMenuOpen)
                 {
                     HideAddTaskInput();
                 }
@@ -1662,7 +1686,7 @@ namespace Todo
         private void ResetPendingDueDate()
         {
             _pendingDueDate = null;
-            AddTaskDueDateIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 85, 85, 85));
+            // SVG icon, color is baked in
             AddTaskDueDateText.Visibility = Visibility.Collapsed;
             ToolTipService.SetToolTip(AddTaskDueDateButton, "设置截止日期");
         }
@@ -1677,7 +1701,7 @@ namespace Todo
             if (sender.SelectedDates.Count > 0)
             {
                 _pendingDueDate = sender.SelectedDates[0];
-                AddTaskDueDateIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212));
+                // SVG icon, color is baked in
                 AddTaskDueDateText.Text = _pendingDueDate.Value.ToString("MM/dd");
                 AddTaskDueDateText.Visibility = Visibility.Visible;
                 ToolTipService.SetToolTip(AddTaskDueDateButton, $"截止日期: {_pendingDueDate.Value:yyyy/MM/dd}");
@@ -2289,6 +2313,8 @@ namespace Todo
         private void AddTaskRecurrence_Click(object sender, RoutedEventArgs e)
         {
             var flyout = new MenuFlyout();
+            _isRecurrenceMenuOpen = true;
+            flyout.Closed += (s, args) => _isRecurrenceMenuOpen = false;
 
             var noneItem = new MenuFlyoutItem { Text = "不重复" };
             noneItem.Click += (s, args) =>
@@ -2298,16 +2324,16 @@ namespace Todo
             };
             flyout.Items.Add(noneItem);
 
-            var dailyItem = new MenuFlyoutItem { Text = "每天", Icon = new SymbolIcon(Symbol.CalendarDay) };
+            var dailyItem = new MenuFlyoutItem { Text = "每天", Icon = AppIcons.Create(AppIcons.RecurDaily, 16) };
             dailyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Daily, "每天");
 
-            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = new SymbolIcon(Symbol.CalendarWeek) };
+            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = AppIcons.Create(AppIcons.Weekly, 16) };
             weeklyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Weekly, "每周");
 
-            var monthlyItem = new MenuFlyoutItem { Text = "每月" };
+            var monthlyItem = new MenuFlyoutItem { Text = "每月", Icon = AppIcons.Create(AppIcons.RecurMonthly, 16) };
             monthlyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Monthly, "每月");
 
-            var yearlyItem = new MenuFlyoutItem { Text = "每年" };
+            var yearlyItem = new MenuFlyoutItem { Text = "每年", Icon = AppIcons.Create(AppIcons.RecurYearly, 16) };
             yearlyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Yearly, "每年");
 
             flyout.Items.Add(dailyItem);
@@ -2340,16 +2366,16 @@ namespace Todo
         {
             var flyout = new MenuFlyout();
             
-            var dailyItem = new MenuFlyoutItem { Text = "每天", Icon = new SymbolIcon(Symbol.CalendarDay) };
+            var dailyItem = new MenuFlyoutItem { Text = "每天", Icon = AppIcons.Create(AppIcons.RecurDaily, 16) };
             dailyItem.Click += (s, args) => SetRecurrence(RecurrenceType.Daily);
             
-            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = new SymbolIcon(Symbol.CalendarWeek) };
+            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = AppIcons.Create(AppIcons.Weekly, 16) };
             weeklyItem.Click += (s, args) => SetRecurrence(RecurrenceType.Weekly);
             
-            var monthlyItem = new MenuFlyoutItem { Text = "每月", Icon = new FontIcon { Glyph = "\uE817" } };
+            var monthlyItem = new MenuFlyoutItem { Text = "每月", Icon = AppIcons.Create(AppIcons.RecurMonthly, 16) };
             monthlyItem.Click += (s, args) => SetRecurrence(RecurrenceType.Monthly);
             
-            var yearlyItem = new MenuFlyoutItem { Text = "每年", Icon = new FontIcon { Glyph = "\uE817" } };
+            var yearlyItem = new MenuFlyoutItem { Text = "每年", Icon = AppIcons.Create(AppIcons.RecurYearly, 16) };
             yearlyItem.Click += (s, args) => SetRecurrence(RecurrenceType.Yearly);
             
             flyout.Items.Add(dailyItem);
@@ -2405,13 +2431,14 @@ namespace Todo
 
         private CompactWindow? _taskCompactWindow;
         private NotepadCompactWindow? _notepadCompactWindow;
+        private string? _taskCompactPageTag;
 
         private bool IsCurrentPageCompactSupported =>
             _currentNavTag is "Important" or "Daily" or "Weekly" or "Monthly"
                 or "StandaloneList" or "GroupList" or "Group" or "Notepad";
 
         private bool IsCurrentPageCompactOpen =>
-            _currentNavTag == "Notepad" ? _notepadCompactWindow != null : _taskCompactWindow != null;
+            _currentNavTag == "Notepad" ? _notepadCompactWindow != null : _taskCompactWindow != null && _taskCompactPageTag == _currentNavTag;
 
         private void ToggleDesktopMode_Click(object sender, RoutedEventArgs e)
         {
@@ -2431,6 +2458,15 @@ namespace Todo
         {
             if (IsCurrentPageCompactOpen) return;
 
+            // 已有任务紧凑窗口但属于其他页面 → 重新归属到当前页面
+            if (_currentNavTag != "Notepad" && _taskCompactWindow != null)
+            {
+                _taskCompactPageTag = _currentNavTag;
+                UpdatePinButtonState();
+                SaveCompactState();
+                return;
+            }
+
             var yOffset = 40;
             if (_taskCompactWindow != null && _currentNavTag == "Notepad")
                 yOffset = 40 + 480 + 12;
@@ -2447,36 +2483,44 @@ namespace Todo
                     _notepadCompactWindow = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
+                    SaveCompactState();
                 };
                 _notepadCompactWindow.Closed += (s, e) =>
                 {
                     _notepadCompactWindow = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
+                    SaveCompactState();
                 };
                 _notepadCompactWindow.Activate();
             }
             else
             {
                 _taskCompactWindow = new CompactWindow(Tasks, CompletedTasks, _dbService, yOffset);
+                _taskCompactPageTag = _currentNavTag;
                 _taskCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _taskCompactWindow.ExitRequested += () =>
                 {
                     _taskCompactWindow?.Close();
                     _taskCompactWindow = null;
+                    _taskCompactPageTag = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
+                    SaveCompactState();
                 };
                 _taskCompactWindow.Closed += (s, e) =>
                 {
                     _taskCompactWindow = null;
+                    _taskCompactPageTag = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
+                    SaveCompactState();
                 };
                 _taskCompactWindow.Activate();
             }
 
             UpdatePinButtonState();
+            SaveCompactState();
         }
 
         private void OnCompactWindowHeightChanged(int newHeight)
@@ -2554,17 +2598,84 @@ namespace Todo
             {
                 _taskCompactWindow?.Close();
                 _taskCompactWindow = null;
+                _taskCompactPageTag = null;
             }
 
             UpdatePinButtonState();
+            SaveCompactState();
         }
 
         private void UpdatePinButtonState()
         {
             var supported = IsCurrentPageCompactSupported;
+            var isOpen = IsCurrentPageCompactOpen;
             PinButton.IsEnabled = supported;
             PinButton.Opacity = supported ? 1 : 0.4;
-            PinIcon.Glyph = IsCurrentPageCompactOpen ? "" : "";
+            PinIcon.Glyph = isOpen ? "" : "";
+            System.Diagnostics.Debug.WriteLine($"[PinButton] page={_currentNavTag}, supported={supported}, taskWin={_taskCompactWindow != null}, taskTag={_taskCompactPageTag}, notepadWin={_notepadCompactWindow != null}, isOpen={isOpen}, icon={(isOpen ? "active" : "inactive")}");
+        }
+
+        private void SaveCompactState()
+        {
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            settings.Values["Compact_Task"] = _taskCompactWindow != null;
+            settings.Values["Compact_Notepad"] = _notepadCompactWindow != null;
+        }
+
+        private void RestoreCompactState()
+        {
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+
+            if (settings.Values.TryGetValue("Compact_Task", out var taskVal) && taskVal is true)
+            {
+                _taskCompactWindow = new CompactWindow(Tasks, CompletedTasks, _dbService);
+                _taskCompactPageTag = _currentNavTag;
+                _taskCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
+                _taskCompactWindow.ExitRequested += () =>
+                {
+                    _taskCompactWindow?.Close();
+                    _taskCompactWindow = null;
+                    _taskCompactPageTag = null;
+                    RepositionCompactWindows();
+                    UpdatePinButtonState();
+                    SaveCompactState();
+                };
+                _taskCompactWindow.Closed += (s, e) =>
+                {
+                    _taskCompactWindow = null;
+                    _taskCompactPageTag = null;
+                    RepositionCompactWindows();
+                    UpdatePinButtonState();
+                    SaveCompactState();
+                };
+                _taskCompactWindow.Activate();
+            }
+
+            if (settings.Values.TryGetValue("Compact_Notepad", out var npVal) && npVal is true)
+            {
+                _notepadCompactWindow = new NotepadCompactWindow(_dbService);
+                _notepadCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
+                _notepadCompactWindow.ExitRequested += () =>
+                {
+                    _notepadCompactWindow?.Close();
+                    _notepadCompactWindow = null;
+                    RepositionCompactWindows();
+                    UpdatePinButtonState();
+                    SaveCompactState();
+                };
+                _notepadCompactWindow.Closed += (s, e) =>
+                {
+                    _notepadCompactWindow = null;
+                    RepositionCompactWindows();
+                    UpdatePinButtonState();
+                    SaveCompactState();
+                };
+                _notepadCompactWindow.Activate();
+            }
+
+            RepositionCompactWindows();
+            UpdatePinButtonState();
+            SaveCompactState();
         }
 
 

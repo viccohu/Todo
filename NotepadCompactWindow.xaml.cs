@@ -31,6 +31,11 @@ namespace Todo
             _dbService = dbService;
 
             this.ApplyCompactWindowStyle();
+
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            var wasMinimized = settings.Values.TryGetValue("Compact_NotepadMinimized", out var val) && val is true;
+            _isMinimized = wasMinimized;
+
             var appWindow = this.AppWindow;
             if (appWindow != null)
             {
@@ -39,11 +44,24 @@ namespace Todo
                     X = 1500,
                     Y = yOffset,
                     Width = 400,
-                    Height = 480
+                    Height = wasMinimized ? 40 : 480
                 });
             }
 
+            if (wasMinimized)
+            {
+                ContentScrollViewer.Visibility = Visibility.Collapsed;
+                NotepadTabView.Visibility = Visibility.Collapsed;
+                ToggleExpandIcon.Glyph = "";
+            }
+
             LoadTabs();
+        }
+
+        private void SaveMinimizedState()
+        {
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            settings.Values["Compact_NotepadMinimized"] = _isMinimized;
         }
 
         private void LoadTabs()
@@ -85,6 +103,11 @@ namespace Todo
         {
             if (_isMinimized)
                 ToggleExpand_Click(this, new RoutedEventArgs());
+        }
+
+        private void TitleBar_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            ToggleExpand_Click(this, new RoutedEventArgs());
         }
 
         private void AddTab(string title)
@@ -279,20 +302,24 @@ namespace Todo
             if (!_isMinimized)
             {
                 _isAnimating = true;
-                await AnimateWindowSize(480, 90, 200);
+                await AnimateWindowSize(480, 40, 200);
                 ContentScrollViewer.Visibility = Visibility.Collapsed;
-                ToggleExpandIcon.Glyph = "";
+                NotepadTabView.Visibility = Visibility.Collapsed;
+                ToggleExpandIcon.Glyph = "";
                 _isMinimized = true;
                 _isAnimating = false;
+                SaveMinimizedState();
             }
             else
             {
                 _isAnimating = true;
+                NotepadTabView.Visibility = Visibility.Visible;
                 ContentScrollViewer.Visibility = Visibility.Visible;
-                ToggleExpandIcon.Glyph = "";
-                await AnimateWindowSize(90, 480, 200);
+                ToggleExpandIcon.Glyph = "";
+                await AnimateWindowSize(40, 480, 200);
                 _isMinimized = false;
                 _isAnimating = false;
+                SaveMinimizedState();
             }
         }
 

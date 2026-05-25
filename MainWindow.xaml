@@ -34,7 +34,7 @@
                       VerticalAlignment="Center"/>
             
             <TextBlock x:Name="TitleBarTextBlock" 
-                       Text="待办事项" 
+                       Text="Memo" 
                        Style="{StaticResource CaptionTextBlockStyle}"
                        Grid.Column="2"
                        VerticalAlignment="Center"
@@ -62,8 +62,8 @@
                             OpenPaneLength="260"
                             CompactPaneLength="60"
                             Background="#1c1c1c"
-                            PaneOpened="NavView_PaneOpened"
-                            PaneClosed="NavView_PaneClosed"
+                            PaneOpening="NavView_PaneOpened"
+                            PaneClosing="NavView_PaneClosed"
                             ItemInvoked="NavView_ItemInvoked"
                             SelectionChanged="NavView_SelectionChanged">
                 
@@ -223,6 +223,7 @@
                                      Grid.Row="2"
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
+                                     Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      VerticalAlignment="Stretch"
                                      HorizontalAlignment="Stretch"
                                      Visibility="Collapsed"
@@ -252,6 +253,7 @@
                                           VerticalScrollBarVisibility="Auto">
                                 <TextBox x:Name="NotepadPreview"
                                          IsReadOnly="True"
+                                         Text="{Binding Content, Mode=OneWay}"
                                          Padding="24,8,24,8"
                                          TextWrapping="Wrap"
                                          HorizontalAlignment="Stretch"
@@ -760,7 +762,7 @@
                                         <!-- 备注文本框 -->
                                         <TextBox Grid.Row="1"
                                                  x:Name="DetailDescription"
-                                                 PlaceholderText="添加备注..."
+                                                 PlaceholderText="备注"
                                                  Background="Transparent"
                                                  BorderThickness="0"
                                                  Foreground="#ccc"
@@ -793,7 +795,7 @@
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <ImageIcon Source="ms-appx:///Assets/icons/white/日历.svg" Width="16" Height="16"/>
+                                                    <ImageIcon Source="ms-appx:///Assets/icons/white/日历888.svg" Width="16" Height="16"/>
                                                     <TextBlock x:Name="DueDateText" Text="截止日期" Foreground="#ccc" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>

@@ -133,6 +133,7 @@ namespace Todo
             }
 
             // 清理桌面固定模式资源
+            SaveCompactState();
             _taskCompactWindow?.Close();
             _notepadCompactWindow?.Close();
             WindowHelper.ShutdownDesktopPin();
@@ -646,14 +647,12 @@ namespace Todo
 
         private void NavView_PaneOpened(NavigationView sender, object args)
         {
-            //PaneFooterGrid.Visibility = Visibility.Visible;
             PaneFooterGrid.Opacity = 1;
             PaneFooterGrid.IsHitTestVisible = true;
         }
 
         private void NavView_PaneClosed(NavigationView sender, object args)
         {
-            //PaneFooterGrid.Visibility = Visibility.Collapsed;
             PaneFooterGrid.Opacity = 0;
             PaneFooterGrid.IsHitTestVisible = false;
         }
@@ -763,7 +762,6 @@ namespace Todo
             }
 
             UpdatePinButtonState();
-            SaveCompactState();
         }
 
         private void UpdatePageHeader()
@@ -2316,7 +2314,7 @@ namespace Todo
             _isRecurrenceMenuOpen = true;
             flyout.Closed += (s, args) => _isRecurrenceMenuOpen = false;
 
-            var noneItem = new MenuFlyoutItem { Text = "不重复" };
+            var noneItem = new MenuFlyoutItem { Text = "不重复", Icon = AppIcons.Create(AppIcons.RecurNone, 16) };
             noneItem.Click += (s, args) =>
             {
                 _pendingRecurrence = RecurrenceType.None;
@@ -2327,7 +2325,7 @@ namespace Todo
             var dailyItem = new MenuFlyoutItem { Text = "每天", Icon = AppIcons.Create(AppIcons.RecurDaily, 16) };
             dailyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Daily, "每天");
 
-            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = AppIcons.Create(AppIcons.Weekly, 16) };
+            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = AppIcons.Create(AppIcons.RecurWeekly, 16) };
             weeklyItem.Click += (s, args) => SetPendingRecurrence(RecurrenceType.Weekly, "每周");
 
             var monthlyItem = new MenuFlyoutItem { Text = "每月", Icon = AppIcons.Create(AppIcons.RecurMonthly, 16) };
@@ -2369,7 +2367,7 @@ namespace Todo
             var dailyItem = new MenuFlyoutItem { Text = "每天", Icon = AppIcons.Create(AppIcons.RecurDaily, 16) };
             dailyItem.Click += (s, args) => SetRecurrence(RecurrenceType.Daily);
             
-            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = AppIcons.Create(AppIcons.Weekly, 16) };
+            var weeklyItem = new MenuFlyoutItem { Text = "每周", Icon = AppIcons.Create(AppIcons.RecurWeekly, 16) };
             weeklyItem.Click += (s, args) => SetRecurrence(RecurrenceType.Weekly);
             
             var monthlyItem = new MenuFlyoutItem { Text = "每月", Icon = AppIcons.Create(AppIcons.RecurMonthly, 16) };
@@ -2475,7 +2473,7 @@ namespace Todo
 
             if (_currentNavTag == "Notepad")
             {
-                _notepadCompactWindow = new NotepadCompactWindow(_dbService, yOffset);
+                _notepadCompactWindow = new NotepadCompactWindow(_dbService, _notepadTabs, yOffset);
                 _notepadCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _notepadCompactWindow.ExitRequested += () =>
                 {
@@ -2483,14 +2481,12 @@ namespace Todo
                     _notepadCompactWindow = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
-                    SaveCompactState();
                 };
                 _notepadCompactWindow.Closed += (s, e) =>
                 {
                     _notepadCompactWindow = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
-                    SaveCompactState();
                 };
                 _notepadCompactWindow.Activate();
             }
@@ -2506,7 +2502,6 @@ namespace Todo
                     _taskCompactPageTag = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
-                    SaveCompactState();
                 };
                 _taskCompactWindow.Closed += (s, e) =>
                 {
@@ -2514,13 +2509,11 @@ namespace Todo
                     _taskCompactPageTag = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
-                    SaveCompactState();
                 };
                 _taskCompactWindow.Activate();
             }
 
             UpdatePinButtonState();
-            SaveCompactState();
         }
 
         private void OnCompactWindowHeightChanged(int newHeight)
@@ -2625,6 +2618,7 @@ namespace Todo
         private void RestoreCompactState()
         {
             var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+            AppLog.Info($"RestoreCompactState: Task={settings.Values.TryGetValue("Compact_Task", out var tv) && tv is true}, Notepad={settings.Values.TryGetValue("Compact_Notepad", out var nv) && nv is true}");
 
             if (settings.Values.TryGetValue("Compact_Task", out var taskVal) && taskVal is true)
             {
@@ -2638,7 +2632,6 @@ namespace Todo
                     _taskCompactPageTag = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
-                    SaveCompactState();
                 };
                 _taskCompactWindow.Closed += (s, e) =>
                 {
@@ -2646,14 +2639,20 @@ namespace Todo
                     _taskCompactPageTag = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
-                    SaveCompactState();
                 };
                 _taskCompactWindow.Activate();
             }
 
             if (settings.Values.TryGetValue("Compact_Notepad", out var npVal) && npVal is true)
             {
-                _notepadCompactWindow = new NotepadCompactWindow(_dbService);
+                // 主界面可能还没初始化记事本，先预加载标签数据
+                if (_notepadTabs.Count == 0)
+                {
+                    foreach (var tab in _dbService.GetNotepadTabs())
+                        _notepadTabs.Add(tab);
+                }
+
+                _notepadCompactWindow = new NotepadCompactWindow(_dbService, _notepadTabs);
                 _notepadCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _notepadCompactWindow.ExitRequested += () =>
                 {
@@ -2661,21 +2660,18 @@ namespace Todo
                     _notepadCompactWindow = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
-                    SaveCompactState();
                 };
                 _notepadCompactWindow.Closed += (s, e) =>
                 {
                     _notepadCompactWindow = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
-                    SaveCompactState();
                 };
                 _notepadCompactWindow.Activate();
             }
 
             RepositionCompactWindows();
             UpdatePinButtonState();
-            SaveCompactState();
         }
 
 

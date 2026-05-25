@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.Storage;
@@ -16,7 +17,7 @@ namespace Todo
     public sealed partial class NotepadCompactWindow : Window
     {
         private DatabaseService _dbService;
-        private ObservableCollection<NotepadTab> _tabs = new ObservableCollection<NotepadTab>();
+        private ObservableCollection<NotepadTab> _tabs;
         private NotepadTab? _currentTab;
         private bool _isPreviewMode = true;
         private bool _isTabSwitching;
@@ -25,10 +26,11 @@ namespace Todo
 
         public event Action<int>? HeightChanged;
 
-        public NotepadCompactWindow(DatabaseService dbService, int yOffset = 40)
+        public NotepadCompactWindow(DatabaseService dbService, ObservableCollection<NotepadTab> tabs = null, int yOffset = 40)
         {
             this.InitializeComponent();
             _dbService = dbService;
+            _tabs = tabs ?? new ObservableCollection<NotepadTab>();
 
             this.ApplyCompactWindowStyle();
 
@@ -56,6 +58,31 @@ namespace Todo
             }
 
             LoadTabs();
+
+            // 监听共享集合变化，主窗口增删标签页时同步
+            _tabs.CollectionChanged += (s, args) =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add && args.NewItems != null)
+                    {
+                        foreach (NotepadTab tab in args.NewItems)
+                            NotepadTabView.TabItems.Add(CreateTabItem(tab));
+                    }
+                    else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove && args.OldItems != null)
+                    {
+                        foreach (NotepadTab tab in args.OldItems)
+                        {
+                            TabViewItem? toRemove = null;
+                            foreach (var item in NotepadTabView.TabItems)
+                                if (item is TabViewItem tvi && tvi.Tag == tab)
+                                    toRemove = tvi;
+                            if (toRemove != null)
+                                NotepadTabView.TabItems.Remove(toRemove);
+                        }
+                    }
+                });
+            };
         }
 
         private void SaveMinimizedState()
@@ -66,12 +93,10 @@ namespace Todo
 
         private void LoadTabs()
         {
-            var tabs = _dbService.GetNotepadTabs();
-            _tabs.Clear();
+            // 使用共享集合时，直接从集合同步 TabView，不清空
             NotepadTabView.TabItems.Clear();
-            foreach (var tab in tabs)
+            foreach (var tab in _tabs)
             {
-                _tabs.Add(tab);
                 NotepadTabView.TabItems.Add(CreateTabItem(tab));
             }
             if (_tabs.Count == 0)
@@ -130,8 +155,8 @@ namespace Todo
             if (NotepadTabView.SelectedItem is TabViewItem tvi && tvi.Tag is NotepadTab tab)
             {
                 _currentTab = tab;
-                Editor.Text = tab.Content;
-                Preview.Text = tab.Content;
+                Editor.DataContext = tab;
+                Preview.DataContext = tab;
                 _isPreviewMode = true;
                 PreviewContainer.Visibility = Visibility.Visible;
                 Editor.Visibility = Visibility.Collapsed;
@@ -143,11 +168,28 @@ namespace Todo
 
         private void TabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
         {
-            if (args.Item is TabViewItem tvi && tvi.Tag is NotepadTab tab)
+            NotepadTab? tab = null;
+            TabViewItem? tvi = null;
+
+            if (args.Tab is TabViewItem tabItem && tabItem.Tag is NotepadTab t1)
+            {
+                tab = t1; tvi = tabItem;
+            }
+            else if (args.Item is TabViewItem item && item.Tag is NotepadTab t2)
+            {
+                tab = t2; tvi = item;
+            }
+            else if (args.Item is NotepadTab t3)
+            {
+                tab = t3;
+            }
+
+            if (tab != null)
             {
                 _dbService.DeleteNotepadTab(tab.Id);
                 _tabs.Remove(tab);
-                NotepadTabView.TabItems.Remove(tvi);
+                if (tvi != null)
+                    NotepadTabView.TabItems.Remove(tvi);
                 if (_currentTab == tab)
                     _currentTab = null;
                 if (_tabs.Count == 0)
@@ -158,12 +200,7 @@ namespace Todo
         private void SaveCurrentTab()
         {
             if (_currentTab == null || _isPreviewMode) return;
-            var text = Editor.Text;
-            if (text != _currentTab.Content)
-            {
-                _currentTab.Content = text;
-                _dbService.UpdateNotepadTabContent(_currentTab.Id, text);
-            }
+            _dbService.UpdateNotepadTabContent(_currentTab.Id, _currentTab.Content);
         }
 
         private void SwitchToEditMode()
@@ -171,8 +208,8 @@ namespace Todo
             _isPreviewMode = false;
             PreviewContainer.Visibility = Visibility.Collapsed;
             Editor.Visibility = Visibility.Visible;
-            Editor.Text = _currentTab?.Content ?? "";
             Editor.Focus(FocusState.Programmatic);
+            Editor.SelectionStart = Editor.Text.Length;
             PreviewToggleIcon.Glyph = "";
             PreviewToggleText.Text = "预览";
         }
@@ -181,7 +218,6 @@ namespace Todo
         {
             if (_currentTab != null && !_isPreviewMode)
                 SaveCurrentTab();
-            Preview.Text = _currentTab?.Content ?? "";
             _isPreviewMode = true;
             Editor.Visibility = Visibility.Collapsed;
             PreviewContainer.Visibility = Visibility.Visible;

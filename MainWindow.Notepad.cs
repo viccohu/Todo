@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.Storage;
@@ -53,32 +54,71 @@ namespace Todo
         {
             _isNotepadInitialized = true;
 
-            var tabs = _dbService.GetNotepadTabs();
-            _notepadTabs.Clear();
-            NotepadTabView.TabItems.Clear();
-            foreach (var tab in tabs)
+            // 如果固定窗口已经加载了标签数据（_notepadTabs 非空），直接同步 TabView，不重读 DB
+            if (_notepadTabs.Count > 0)
             {
-                _notepadTabs.Add(tab);
-                NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
-            }
-            if (_notepadTabs.Count == 0)
-                AddNotepadTab("未命名");
-            else
+                foreach (var tab in _notepadTabs)
+                    NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
                 NotepadTabView.SelectedIndex = 0;
+            }
+            else
+            {
+                var tabs = _dbService.GetNotepadTabs();
+                _notepadTabs.Clear();
+                NotepadTabView.TabItems.Clear();
+                foreach (var tab in tabs)
+                {
+                    _notepadTabs.Add(tab);
+                    NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
+                }
+                if (_notepadTabs.Count == 0)
+                    AddNotepadTab("未命名");
+                else
+                    NotepadTabView.SelectedIndex = 0;
+            }
 
+            _notepadSaveTimer?.Stop();
             _notepadSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _notepadSaveTimer.Tick += (s, args) =>
             {
                 if (_isNotepadTabSwitching || _currentNotepadTab == null) return;
                 if (_isPreviewMode) return;
-                var text = NotepadEditor.Text;
-                if (text != _currentNotepadTab.Content)
-                {
-                    _currentNotepadTab.Content = text;
-                    _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, text);
-                }
+                _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, _currentNotepadTab.Content);
             };
             _notepadSaveTimer.Start();
+
+            // 监听集合变化（固定模式修改标签页时同步）
+            _notepadTabs.CollectionChanged += (s, args) =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add && args.NewItems != null)
+                    {
+                        foreach (NotepadTab tab in args.NewItems)
+                        {
+                            // 去重：MainWindow 自己加的已经在 TabView 里了
+                            bool exists = false;
+                            foreach (var item in NotepadTabView.TabItems)
+                                if (item is TabViewItem tvi && tvi.Tag == tab)
+                                    exists = true;
+                            if (!exists)
+                                NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
+                        }
+                    }
+                    else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove && args.OldItems != null)
+                    {
+                        foreach (NotepadTab tab in args.OldItems)
+                        {
+                            TabViewItem? toRemove = null;
+                            foreach (var item in NotepadTabView.TabItems)
+                                if (item is TabViewItem tvi && tvi.Tag == tab)
+                                    toRemove = tvi;
+                            if (toRemove != null)
+                                NotepadTabView.TabItems.Remove(toRemove);
+                        }
+                    }
+                });
+            };
         }
 
         private TabViewItem CreateTabViewItem(NotepadTab tab)
@@ -206,11 +246,7 @@ namespace Todo
         {
             if (_currentNotepadTab == null) return;
             var text = NotepadEditor.Text;
-            if (text != _currentNotepadTab.Content)
-            {
-                _currentNotepadTab.Content = text;
-                _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, text);
-            }
+            _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, _currentNotepadTab.Content);
         }
 
         private static bool IsExternalNotepadTab(NotepadTab tab) =>
@@ -228,8 +264,8 @@ namespace Todo
             if (NotepadTabView.SelectedItem is TabViewItem tvi && tvi.Tag is NotepadTab tab)
             {
                 _currentNotepadTab = tab;
-                NotepadEditor.Text = tab.Content;
-                NotepadPreview.Text = tab.Content;
+                NotepadEditor.DataContext = tab;
+                NotepadPreview.DataContext = tab;
                 _isPreviewMode = true;
                 NotepadPreviewContainer.Visibility = Visibility.Visible;
                 NotepadEditor.Visibility = Visibility.Collapsed;
@@ -290,8 +326,8 @@ namespace Todo
             NotepadEditor.Visibility = Visibility.Visible;
             NotepadPreviewToggleIcon.Glyph = "\uE890";
             NotepadPreviewToggleText.Text = "预览";
-            NotepadEditor.Text = _currentNotepadTab?.Content ?? "";
             NotepadEditor.Focus(FocusState.Programmatic);
+            NotepadEditor.SelectionStart = NotepadEditor.Text.Length;
         }
 
         private void SwitchToPreviewMode()
@@ -300,7 +336,6 @@ namespace Todo
             {
                 SaveCurrentNotepadTabContentToDatabase();
             }
-            NotepadPreview.Text = _currentNotepadTab?.Content ?? "";
             _isPreviewMode = true;
             NotepadEditor.Visibility = Visibility.Collapsed;
             NotepadPreviewContainer.Visibility = Visibility.Visible;

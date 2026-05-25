@@ -23,7 +23,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
                     <ImageIcon Source="ms-appx:///Assets/icons/white/重要任务.svg" Width="18" Height="18"/>
-                    <TextBlock Text="TO DO" FontSize="14" Foreground="#ccc" VerticalAlignment="Center"/>
+                    <TextBlock Text="To Do" FontSize="14" Foreground="#ccc" VerticalAlignment="Center"/>
                 </StackPanel>
                 <Button Grid.Column="1"
                         Click="RestoreButton_Click"
@@ -117,6 +117,7 @@
                                                         <TextBlock Text="{Binding DueDateDisplay}"
                                                                    HorizontalAlignment="Right"
                                                                    VerticalAlignment="Center"
+                                                                   Margin="8,0"
                                                                    Foreground="#555"
                                                                    FontSize="11"/>
                                                     </Grid>

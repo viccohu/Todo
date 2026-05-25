@@ -73,6 +73,7 @@
                     <TextBox x:Name="Editor"
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
+                             Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              MinHeight="200"
                              VerticalAlignment="Stretch"
                              HorizontalAlignment="Stretch"
@@ -100,6 +101,7 @@
                     <ScrollViewer x:Name="PreviewContainer" VerticalScrollBarVisibility="Auto">
                         <TextBox x:Name="Preview"
                                  IsReadOnly="True"
+                                 Text="{Binding Content, Mode=OneWay}"
                                  Padding="12,8,12,8"
                                  TextWrapping="Wrap"
                                  HorizontalAlignment="Stretch"

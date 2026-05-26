@@ -81,6 +81,27 @@ namespace Todo
                     e.Handled = true;
                 }
 
+                // 全局 Enter：记事本→编辑模式，任务页→提交新任务
+                if (e.Key == Windows.System.VirtualKey.Enter &&
+                    !IsCtrlPressed() && !IsShiftPressed() && !IsAltPressed())
+                {
+                    if (_currentNavTag == "Notepad")
+                    {
+                        if (_isPreviewMode && _currentNotepadTab != null)
+                        {
+                            SwitchToEditMode();
+                            e.Handled = true;
+                        }
+                    }
+                    else if (_currentNavTag != "Notepad")
+                    {
+                        if (AddTaskInputArea.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(AddTaskTextBox.Text))
+                        {
+                            AddTaskFromInput();
+                            e.Handled = true;
+                        }
+                    }
+                }
             };
 
             _trayService = new SystemTrayService(this, RootGrid);
@@ -1040,15 +1061,30 @@ namespace Todo
         {
             if (_selectedTask == null) return;
 
-            var firstReminder = _selectedTask.Reminders
-                .Where(reminder => reminder.ReminderDateTime.HasValue)
-                .OrderBy(reminder => reminder.ReminderDateTime)
-                .FirstOrDefault();
+            // 只显示用户自定的 Custom 提醒，不显示 Deadline 默认提醒
+            var customReminders = _selectedTask.Reminders
+                .Where(r => r.ReminderType != ReminderType.Deadline && r.ReminderDateTime.HasValue)
+                .OrderBy(r => r.ReminderDateTime)
+                .ToList();
+
+            var firstReminder = customReminders.FirstOrDefault();
 
             ReminderText.Text = firstReminder?.ReminderDateTime?.ToString("M月d日 HH:mm") ?? "提醒我";
             ClearReminderButton.Visibility = firstReminder != null
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+
+            // 默认截止日提醒开关：有截止日才显示
+            if (_selectedTask.DueDate.HasValue)
+            {
+                DeadlineReminderToggle.Visibility = Visibility.Visible;
+                DeadlineReminderToggle.IsChecked = ReminderService.Instance.HasDeadlineReminders(_selectedTask.Id);
+                UpdateDeadlineReminderToggleAppearance();
+            }
+            else
+            {
+                DeadlineReminderToggle.Visibility = Visibility.Collapsed;
+            }
         }
 
         private void RefreshReminderSelectedDatesText()
@@ -2267,12 +2303,17 @@ namespace Todo
         {
             if (_selectedTask != null)
             {
-                _dbService.DeleteRemindersForTask(_selectedTask.Id);
+                _dbService.DeleteRemindersByType(_selectedTask.Id, ReminderType.Custom);
                 _selectedTask.Reminders.Clear();
+                // 重新加载（Deadline 提醒还在）
+                var reminders = _dbService.GetRemindersForTask(_selectedTask.Id);
+                foreach (var r in reminders)
+                    _selectedTask.Reminders.Add(r);
                 RefreshSelectedTaskReminderControls();
                 RecurringReminderButton.Visibility = Visibility.Collapsed;
                 ReminderService.Instance.ResetNotifiedReminders();
                 ReminderService.Instance.RemoveScheduledReminderNotifications(_selectedTask.Id);
+                ReminderService.Instance.ScheduleReminderNotificationsForTask(_selectedTask.Id);
             }
         }
 
@@ -2682,6 +2723,7 @@ namespace Todo
 
         private static bool IsCtrlPressed() => (GetKeyState(0x11) & 0x8000) != 0;
         private static bool IsShiftPressed() => (GetKeyState(0x10) & 0x8000) != 0;
+        private static bool IsAltPressed() => (GetKeyState(0x12) & 0x8000) != 0;
 
         #endregion
 

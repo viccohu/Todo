@@ -160,6 +160,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <!-- TabView 标签栏 -->
@@ -274,6 +275,18 @@
                                     </TextBox.Resources>
                                 </TextBox>
                             </ScrollViewer>
+
+                            <!-- 误关闭恢复提示 -->
+                            <Grid x:Name="NotepadUndoBar" Grid.Row="3" Height="36" Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}" Visibility="Collapsed" Padding="8,0" CornerRadius="6,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="NotepadUndoText" Grid.Column="0" Text="" FontSize="12" Foreground="#ccc" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                <Button Grid.Column="1" Click="NotepadUndoClose_Click" Background="Transparent" BorderThickness="0" Padding="8,4" Foreground="#4da6ff" FontSize="12">
+                                    恢复
+                                </Button>
+                            </Grid>
                         </Grid>
 
                         <!-- 任务列表 ScrollView -->

@@ -1243,5 +1243,19 @@ namespace Todo.Services
             command.Parameters.AddWithValue("$id", id);
             command.ExecuteNonQuery();
         }
+
+        public void UpdateNotepadTabOrders(List<NotepadTab> tabs)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                var command = connection.CreateCommand();
+                command.CommandText = "UPDATE NotepadTabs SET \"Order\" = $order WHERE Id = $id";
+                command.Parameters.AddWithValue("$order", i);
+                command.Parameters.AddWithValue("$id", tabs[i].Id);
+                command.ExecuteNonQuery();
+            }
+        }
     }
 }

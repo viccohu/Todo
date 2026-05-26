@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Threading.Tasks;
@@ -21,6 +22,11 @@ namespace Todo
         private bool _isNotepadInitialized = false;
         private bool _isNotepadTabSwitching = false;
         private bool _isPreviewMode = true;
+
+        // 误关闭恢复
+        private NotepadTab? _closedNotepadTab;
+        private DispatcherTimer? _closeUndoTimer;
+        private int _undoCountdown;
 
         private void ShowTaskListContent()
         {
@@ -117,7 +123,21 @@ namespace Todo
                                 NotepadTabView.TabItems.Remove(toRemove);
                         }
                     }
+                    else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move)
+                    {
+                        // 同步标签排序：根据集合顺序重建 TabView
+                        NotepadTabView.TabItems.Clear();
+                        foreach (var tab in _notepadTabs)
+                            NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
+                        NotepadTabView.SelectedIndex = _notepadTabs.IndexOf(_currentNotepadTab!);
+                    }
                 });
+            };
+
+            // 在标签切换时同步排序（拖动排序后用户必然会点击标签）
+            NotepadTabView.SelectionChanged += (s, args) =>
+            {
+                DispatcherQueue.TryEnqueue(SyncNotepadTabOrder);
             };
         }
 
@@ -132,7 +152,6 @@ namespace Todo
         {
             var title = new TextBlock
             {
-                Text = tab.Title,
                 FontSize = 13,
                 Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204)),
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -160,6 +179,14 @@ namespace Todo
             };
             header.Children.Add(externalIndicator);
 
+            // 绑定标题，支持固定窗口同步
+            var titleBinding = new Microsoft.UI.Xaml.Data.Binding
+            {
+                Source = tab,
+                Path = new Microsoft.UI.Xaml.PropertyPath("Title"),
+                Mode = Microsoft.UI.Xaml.Data.BindingMode.OneWay
+            };
+            title.SetBinding(TextBlock.TextProperty, titleBinding);
             header.Children.Add(title);
 
             return header;
@@ -281,17 +308,63 @@ namespace Todo
             if (tab != null)
             {
                 var closingItem = GetTabViewItemFromCloseArgs(args, tab);
-                _dbService.DeleteNotepadTab(tab.Id);
-                _notepadTabs.Remove(tab);
+                // 先从前台移除，5秒倒计时后再从 DB 删除
                 if (closingItem != null)
                     NotepadTabView.TabItems.Remove(closingItem);
+                _notepadTabs.Remove(tab);
                 if (_currentNotepadTab == tab)
                     _currentNotepadTab = null;
                 if (_notepadTabs.Count == 0)
                     AddNotepadTab("未命名");
                 else if (NotepadTabView.SelectedItem == null)
                     NotepadTabView.SelectedIndex = Math.Max(0, Math.Min(NotepadTabView.SelectedIndex, NotepadTabView.TabItems.Count - 1));
+
+                StartUndoTimer(tab);
             }
+        }
+
+        private void StartUndoTimer(NotepadTab tab)
+        {
+            _closeUndoTimer?.Stop();
+            _closedNotepadTab = tab;
+            _undoCountdown = 5;
+
+            NotepadUndoText.Text = $"「{tab.Title}」已关闭 · {_undoCountdown}秒后删除";
+            NotepadUndoBar.Visibility = Visibility.Visible;
+
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _closeUndoTimer = timer;
+            timer.Tick += (s, e) =>
+            {
+                _undoCountdown--;
+                if (_undoCountdown <= 0)
+                {
+                    timer.Stop();
+                    if (_closedNotepadTab != null)
+                        _dbService.DeleteNotepadTab(_closedNotepadTab.Id);
+                    _closedNotepadTab = null;
+                    NotepadUndoBar.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    NotepadUndoText.Text = $"「{_closedNotepadTab!.Title}」已关闭 · {_undoCountdown}秒后删除";
+                }
+            };
+            timer.Start();
+        }
+
+        private void NotepadUndoClose_Click(object sender, RoutedEventArgs e)
+        {
+            if (_closedNotepadTab == null) return;
+            _closeUndoTimer?.Stop();
+
+            // 恢复标签
+            _notepadTabs.Add(_closedNotepadTab);
+            NotepadTabView.TabItems.Add(CreateTabViewItem(_closedNotepadTab));
+            NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
+
+            _closedNotepadTab = null;
+            NotepadUndoBar.Visibility = Visibility.Collapsed;
         }
 
         private static NotepadTab? GetNotepadTabFromCloseArgs(TabViewTabCloseRequestedEventArgs args)
@@ -455,6 +528,23 @@ namespace Todo
                         selectedItem.Header = CreateTabViewItem(_currentNotepadTab).Header;
                 }
             }
+        }
+        private void SyncNotepadTabOrder()
+        {
+            if (_isNotepadTabSwitching) return;
+            if (NotepadTabView.TabItems.Count != _notepadTabs.Count) return;
+            for (int i = 0; i < _notepadTabs.Count; i++)
+            {
+                var tab = (NotepadTabView.TabItems[i] as TabViewItem)?.Tag as NotepadTab;
+                if (tab == null || _notepadTabs[i] == tab) continue;
+                while (_notepadTabs.IndexOf(tab) != i)
+                {
+                    var oldI = _notepadTabs.IndexOf(tab);
+                    if (oldI < 0) break;
+                    _notepadTabs.Move(oldI, i);
+                }
+            }
+            _dbService.UpdateNotepadTabOrders(new List<NotepadTab>(_notepadTabs));
         }
     }
 }

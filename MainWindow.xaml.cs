@@ -1698,13 +1698,28 @@ namespace Todo
                         break;
                 }
 
-                var newTask = _dbService.AddTask(AddTaskTextBox.Text.Trim(), _pendingDueDate?.DateTime, null, listId, isImportant);
+                var newTask = _dbService.AddTask(AddTaskTextBox.Text.Trim(), _pendingDueDate?.DateTime.Date, null, listId, isImportant);
                 var subTasks = _dbService.GetSubTasksForTask(newTask.Id);
                 foreach (var subTask in subTasks)
                 {
                     newTask.SubTasks.Add(subTask);
                 }
                 Tasks.Add(newTask);
+
+                // 自动生成截止日默认提醒
+                if (_pendingDueDate.HasValue)
+                {
+                    ReminderService.Instance.EnsureDeadlineReminders(newTask.Id, _pendingDueDate.Value.DateTime.Date);
+                }
+
+                // 设置了重复
+                if (_pendingRecurrence != RecurrenceType.None)
+                {
+                    var baseDate = _pendingDueDate?.DateTime.Date ?? DateTime.Today;
+                    var recurrence = _dbService.AddRecurrence(newTask.Id, _pendingRecurrence, baseDate);
+                    recurrence.NextDueDate = _dbService.CalculateNextRecurrenceDate(_pendingRecurrence, baseDate);
+                    _dbService.UpdateRecurrence(recurrence);
+                }
             }
             HideAddTaskInput();
         }
@@ -2043,10 +2058,20 @@ namespace Todo
                     return;
                 }
                 
-                _selectedTask.DueDate = selectedDate;
+                _selectedTask.DueDate = selectedDate.Date;
                 RefreshSelectedTaskDueDateControls();
-                
+
                 _dbService.UpdateTask(_selectedTask);
+
+                // 截止日期变更：重建默认提醒
+                ReminderService.Instance.EnsureDeadlineReminders(_selectedTask.Id, selectedDate.Date);
+
+                // 刷新提醒列表和 toggle 状态
+                _selectedTask.Reminders.Clear();
+                foreach (var r in _dbService.GetRemindersForTask(_selectedTask.Id))
+                    _selectedTask.Reminders.Add(r);
+                RefreshSelectedTaskReminderControls();
+
                 DetailCalendarView.Visibility = Visibility.Collapsed;
                 ScrollToElement(DueDateButton);
             }
@@ -2102,7 +2127,9 @@ namespace Todo
                         }
                     }
 
-                    var reminders = _dbService.GetRemindersForTask(_selectedTask.Id);
+                    var reminders = _dbService.GetRemindersForTask(_selectedTask.Id)
+                        .Where(r => r.ReminderType != ReminderType.Deadline)
+                        .ToList();
                     if (reminders.Count > 0 && ReminderCalendarView != null)
                     {
                         foreach (var reminder in reminders)
@@ -2152,7 +2179,7 @@ namespace Todo
                         }
                         if (SameDayIntervalComboBox != null)
                         {
-                            SameDayIntervalComboBox.SelectedIndex = -1;
+                            SameDayIntervalComboBox.SelectedIndex = 0;
                         }
                     }
                 }
@@ -2182,7 +2209,7 @@ namespace Todo
                 SameDayIntervalComboBox.IsEnabled = EnableSameDayReminderToggle.IsOn;
                 if (!EnableSameDayReminderToggle.IsOn)
                 {
-                    SameDayIntervalComboBox.SelectedIndex = -1;
+                    SameDayIntervalComboBox.SelectedIndex = 0;
                 }
             }
         }
@@ -2208,7 +2235,8 @@ namespace Todo
                     
                     System.Diagnostics.Debug.WriteLine($"ConfirmReminder: TaskId={_selectedTask.Id}, SelectedDates={selectedDates?.Count ?? 0}, Time={reminderTime}");
                     
-                    _dbService.DeleteRemindersForTask(_selectedTask.Id);
+                    // 只删除用户手动设置的 Custom 提醒，保留 Deadline 提醒
+                    _dbService.DeleteRemindersByType(_selectedTask.Id, ReminderType.Custom);
                     _selectedTask.Reminders.Clear();
                     
                     if (selectedDates != null && selectedDates.Count > 0)
@@ -2287,6 +2315,17 @@ namespace Todo
 
                     ReminderService.Instance.ResetNotifiedReminders();
                     ReminderService.Instance.ScheduleReminderNotificationsForTask(_selectedTask.Id);
+
+                    // 用户自定了截止日当天的提醒 → 关闭默认截止日提醒
+                    if (selectedDates != null && selectedDates.Count > 0 && _selectedTask.DueDate.HasValue)
+                    {
+                        var dueDate = _selectedTask.DueDate.Value.Date;
+                        var hasReminderOnDueDate = selectedDates.Any(d => d.Date == dueDate);
+                        if (hasReminderOnDueDate)
+                        {
+                            ReminderService.Instance.RemoveDeadlineReminders(_selectedTask.Id);
+                        }
+                    }
                 }
             }
             catch (Exception ex)

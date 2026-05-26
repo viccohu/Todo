@@ -173,6 +173,9 @@ namespace Todo
         private const int VK_D = 0x44;
         private const int VK_LWIN = 0x5B;
         private const int VK_RWIN = 0x5C;
+        private const int VK_F11 = 0x7A;
+        private const int VK_F12 = 0x7B;
+        private const int VK_CONTROL = 0x11;
 
         #endregion
 
@@ -203,6 +206,11 @@ namespace Todo
         private static IntPtr _keyboardHook = IntPtr.Zero;
         private static bool _isWinKeyDown = false;
         private static DateTime _lastWinDKeyboardTrigger = DateTime.MinValue;
+
+        // F11/F12 快捷键窗口唤起
+        private static readonly System.Collections.Generic.List<IntPtr> _pinnedWindowOrder = new();
+        private static bool _isF11Pressed, _isF12Pressed;
+        private static bool _ctrlHeldOnF11Press, _ctrlHeldOnF12Press;
 
         // 壁纸层嵌入状态
         private static IntPtr _originalParent = IntPtr.Zero;
@@ -484,6 +492,11 @@ namespace Todo
 
             LogPinnedGuard($"START hwnd=0x{hwnd.ToInt64():X}, bounds=({x},{y},{width},{height})");
 
+            lock (_pinnedGuardLock)
+            {
+                _pinnedWindowOrder.Add(hwnd);
+            }
+
             StartPinnedKeyboardHook();
         }
 
@@ -494,6 +507,15 @@ namespace Todo
             {
                 removed = _pinnedWindows.Remove(hwnd);
                 _isPinnedGuardActive = _pinnedWindows.Count > 0;
+                if (removed)
+                {
+                    var idx = _pinnedWindowOrder.IndexOf(hwnd);
+                    if (idx >= 0)
+                    {
+                        _pinnedWindowOrder.RemoveAt(idx);
+                        ResetFKeyState(idx);
+                    }
+                }
             }
 
             if (!removed)
@@ -506,6 +528,12 @@ namespace Todo
 
             StopPinnedKeyboardHook();
             _isWinKeyDown = false;
+        }
+
+        private static void ResetFKeyState(int index)
+        {
+            if (index == 0) { _isF11Pressed = false; _ctrlHeldOnF11Press = false; }
+            else if (index == 1) { _isF12Pressed = false; _ctrlHeldOnF12Press = false; }
         }
 
         private static void StopPinnedWindowGuard()
@@ -563,9 +591,62 @@ namespace Todo
                         SchedulePinnedRestore("keyboard Win+D", includeImmediate: false);
                     }
                 }
+                else if (vkCode == VK_F11 || vkCode == VK_F12)
+                {
+                    var isF11 = vkCode == VK_F11;
+                    if (isKeyDown)
+                    {
+                        HandleFKeyDown(isF11 ? 0 : 1, isF11);
+                    }
+                    else if (isKeyUp)
+                    {
+                        HandleFKeyUp(isF11 ? 0 : 1, isF11);
+                    }
+                }
             }
 
             return CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+        }
+
+        private static void HandleFKeyDown(int index, bool isF11)
+        {
+            if (isF11)
+            {
+                if (_isF11Pressed) return;
+                _ctrlHeldOnF11Press = IsCtrlDown();
+                _isF11Pressed = true;
+            }
+            else
+            {
+                if (_isF12Pressed) return;
+                _ctrlHeldOnF12Press = IsCtrlDown();
+                _isF12Pressed = true;
+            }
+
+            var hwnd = GetPinnedWindowByIndex(index);
+            if (hwnd.HasValue)
+            {
+                LogPinnedGuard($"F{(isF11 ? "11" : "12")} raise hwnd=0x{hwnd.Value.ToInt64():X} ctrl={IsCtrlDown()}");
+                RaisePinnedWindow(hwnd.Value);
+            }
+        }
+
+        private static void HandleFKeyUp(int index, bool isF11)
+        {
+            var ctrlHeld = isF11 ? _ctrlHeldOnF11Press : _ctrlHeldOnF12Press;
+
+            if (isF11) _isF11Pressed = false;
+            else _isF12Pressed = false;
+
+            if (ctrlHeld)
+                return;
+
+            var hwnd = GetPinnedWindowByIndex(index);
+            if (hwnd.HasValue)
+            {
+                LogPinnedGuard($"F{(isF11 ? "11" : "12")} lower hwnd=0x{hwnd.Value.ToInt64():X}");
+                LowerPinnedWindow(hwnd.Value);
+            }
         }
 
         private static bool IsWinKeyCurrentlyDown()
@@ -573,6 +654,40 @@ namespace Todo
             return _isWinKeyDown ||
                 (GetAsyncKeyState(VK_LWIN) & unchecked((short)0x8000)) != 0 ||
                 (GetAsyncKeyState(VK_RWIN) & unchecked((short)0x8000)) != 0;
+        }
+
+        private static bool IsCtrlDown()
+        {
+            return (GetAsyncKeyState(VK_CONTROL) & unchecked((short)0x8000)) != 0;
+        }
+
+        private static IntPtr? GetPinnedWindowByIndex(int index)
+        {
+            lock (_pinnedGuardLock)
+            {
+                if (index >= 0 && index < _pinnedWindowOrder.Count)
+                    return _pinnedWindowOrder[index];
+            }
+            return null;
+        }
+
+        private static void RaisePinnedWindow(IntPtr hwnd)
+        {
+            if (IsIconic(hwnd))
+                ShowWindow(hwnd, SW_RESTORE);
+            if (!IsWindowVisible(hwnd))
+                ShowWindow(hwnd, SW_SHOW);
+
+            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = AppWindow.GetFromWindowId(windowId);
+            appWindow?.MoveInZOrderAtTop();
+        }
+
+        private static void LowerPinnedWindow(IntPtr hwnd)
+        {
+            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = AppWindow.GetFromWindowId(windowId);
+            appWindow?.MoveInZOrderAtBottom();
         }
 
         private static void SchedulePinnedRestore(string reason, bool includeImmediate)

@@ -9,6 +9,15 @@ namespace Todo
 {
     public static class WindowHelper
     {
+        private static void LogPinnedGuard(string message)
+        {
+            var line = "[PinnedGuard] " + message;
+            System.Diagnostics.Debug.WriteLine(line);
+            System.Diagnostics.Trace.WriteLine(line);
+            OutputDebugString(line);
+            Console.WriteLine(line);
+        }
+
         #region P/Invoke Declarations
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -22,6 +31,12 @@ namespace Todo
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
@@ -50,20 +65,36 @@ namespace Todo
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
-        // 窗口子类化 — 拦截 WM_SHOWWINDOW 防止 Win+D 隐藏
-        [DllImport("comctl32.dll", SetLastError = true)]
-        private static extern bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
-            IntPtr uIdSubclass, IntPtr dwRefData);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        private static extern void OutputDebugString(string lpOutputString);
 
-        [DllImport("comctl32.dll", SetLastError = true)]
-        private static extern bool RemoveWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
-            IntPtr uIdSubclass);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn,
+            IntPtr hMod, uint dwThreadId);
 
-        [DllImport("comctl32.dll", SetLastError = true)]
-        private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
 
-        private delegate IntPtr SUBCLASSPROC(IntPtr hWnd, uint uMsg, IntPtr wParam,
-            IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct KBDLLHOOKSTRUCT
+        {
+            public uint vkCode;
+            public uint scanCode;
+            public uint flags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
 
         // GetClassName 仍被 FindTargetWorkerW 使用
         [DllImport("user32.dll")]
@@ -106,6 +137,7 @@ namespace Todo
         private const uint WS_MINIMIZEBOX = 0x00020000;
         private const uint WS_MAXIMIZEBOX = 0x00010000;
 
+        private static readonly IntPtr HWND_TOP = IntPtr.Zero;
         private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
@@ -115,6 +147,8 @@ namespace Todo
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_SHOWWINDOW = 0x0040;
         private const int SW_SHOW = 5;
+        private const int SW_SHOWNOACTIVATE = 4;
+        private const int SW_RESTORE = 9;
 
         private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
         private const int DWMWCP_ROUND = 2;
@@ -129,22 +163,46 @@ namespace Todo
         private const uint SW_HIDE = 0;
         private const uint SW_SHOWNORMAL = 1;
 
-        // 窗口子类化常量
-        private const uint WM_SHOWWINDOW_MSG = 0x0018;
-        private static readonly IntPtr SUBCLASS_ID = new IntPtr(42);
+        // 键盘钩子常量
+        private const int WH_KEYBOARD_LL = 13;
+        private const int HC_ACTION = 0;
+        private const int WM_KEYDOWN = 0x0100;
+        private const int WM_KEYUP = 0x0101;
+        private const int WM_SYSKEYDOWN = 0x0104;
+        private const int WM_SYSKEYUP = 0x0105;
+        private const int VK_D = 0x44;
+        private const int VK_LWIN = 0x5B;
+        private const int VK_RWIN = 0x5C;
 
         #endregion
 
         #region State
 
+        private sealed class PinnedWindowGuardState
+        {
+            public IntPtr Hwnd;
+            public int X;
+            public int Y;
+            public int Width;
+            public int Height;
+            public int IsRestoring;
+            public DateTime LastHeartbeatLog = DateTime.MinValue;
+            public DateTime LastRestoreLog = DateTime.MinValue;
+            public DateTime LastRestoreBurstLog = DateTime.MinValue;
+            public DateTime LastRestoreBurstRequest = DateTime.MinValue;
+            public DateTime ForceRestoreUntil = DateTime.MinValue;
+        }
+
         private static int _normalX, _normalY, _normalWidth, _normalHeight;
         private static int _pinnedX, _pinnedY, _pinnedWidth, _pinnedHeight;
         private static bool _isAnimating = false;
-
-        // 窗口子类化状态
-        private static IntPtr _subclassedHwnd = IntPtr.Zero;
-        private static SUBCLASSPROC? _subclassProc;
-        private static bool _isSubclassed = false;
+        private static readonly object _pinnedGuardLock = new object();
+        private static readonly System.Collections.Generic.Dictionary<IntPtr, PinnedWindowGuardState> _pinnedWindows = new();
+        private static bool _isPinnedGuardActive = false;
+        private static LowLevelKeyboardProc? _keyboardHookProc;
+        private static IntPtr _keyboardHook = IntPtr.Zero;
+        private static bool _isWinKeyDown = false;
+        private static DateTime _lastWinDKeyboardTrigger = DateTime.MinValue;
 
         // 壁纸层嵌入状态
         private static IntPtr _originalParent = IntPtr.Zero;
@@ -164,6 +222,7 @@ namespace Todo
         public static void SetPinnedStyle(this Window window, int width = 320, int height = 450)
         {
             var hwnd = window.GetWindowHandle();
+            LogPinnedGuard($"SetPinnedStyle enter hwnd=0x{hwnd.ToInt64():X}, requested=({width},{height})");
 
             var appWindow = GetAppWindow(window);
             if (appWindow != null)
@@ -174,10 +233,12 @@ namespace Todo
                 _normalHeight = appWindow.Size.Height;
             }
 
-            // 扩展样式：隐藏任务栏 + 不抢焦点（点选可交互但不激活）+ 移除 APPWINDOW
+            StopPinnedWindowGuard(hwnd);
+
+            // 扩展样式：隐藏任务栏 + 移除 APPWINDOW。固定模式保留普通可交互窗口语义。
             long exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
             exStyle |= WS_EX_TOOLWINDOW;
-            exStyle |= WS_EX_NOACTIVATE;
+            exStyle &= ~(int)WS_EX_NOACTIVATE;
             exStyle &= ~(int)WS_EX_APPWINDOW;
             SetWindowLong(hwnd, GWL_EXSTYLE, (int)exStyle);
 
@@ -204,8 +265,7 @@ namespace Todo
                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
             ShowWindow(hwnd, SW_SHOW);
 
-            // 窗口子类化：拦截 WM_SHOWWINDOW 防止 Win+D 隐藏
-            SubclassWindow(hwnd);
+            StartPinnedWindowGuard(hwnd, _pinnedX, _pinnedY, _pinnedWidth, _pinnedHeight);
 
             if (appWindow != null)
             {
@@ -221,6 +281,7 @@ namespace Todo
         public static void ApplyCompactWindowStyle(this Window window)
         {
             var hwnd = window.GetWindowHandle();
+            LogPinnedGuard($"ApplyCompactWindowStyle hwnd=0x{hwnd.ToInt64():X}");
 
             // 扩展样式：隐藏任务栏 + 移除 APPWINDOW
             long exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
@@ -244,13 +305,32 @@ namespace Todo
             }
         }
 
+        public static void UpdatePinnedWindowGuard(this Window window)
+        {
+            var hwnd = window.GetWindowHandle();
+            var appWindow = GetAppWindow(window);
+            if (appWindow == null)
+            {
+                LogPinnedGuard($"Update guard skipped: no AppWindow hwnd=0x{hwnd.ToInt64():X}");
+                return;
+            }
+
+            UpdatePinnedWindowBounds(hwnd, appWindow.Position.X, appWindow.Position.Y, appWindow.Size.Width, appWindow.Size.Height);
+        }
+
+        public static void StopPinnedWindowGuard(this Window window)
+        {
+            var hwnd = window.GetWindowHandle();
+            StopPinnedWindowGuard(hwnd);
+        }
+
         public static void SetNormalStyle(this Window window, bool resizeToNormal)
         {
             var hwnd = window.GetWindowHandle();
 
             // 先从壁纸层恢复（如果之前嵌入了）并取消窗口子类化
+            StopPinnedWindowGuard(hwnd);
             RemoveFromWallpaper(hwnd);
-            UnsubclassWindow();
 
             long exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
             exStyle &= ~(int)WS_EX_TOOLWINDOW;
@@ -302,68 +382,329 @@ namespace Todo
         public static void ResizePinned(this Window window, int width, int height)
         {
             var hwnd = window.GetWindowHandle();
-            _pinnedWidth = width;
-            _pinnedHeight = height;
-            SetWindowPos(hwnd, HWND_BOTTOM, _pinnedX, _pinnedY, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            var bounds = GetPinnedWindowBounds(hwnd);
+            UpdatePinnedWindowBounds(hwnd, bounds.x, bounds.y, width, height);
+            SetWindowPos(hwnd, HWND_BOTTOM, bounds.x, bounds.y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
 
         public static void AnimateResizePinned(this Window window, int width, int height)
         {
             var hwnd = window.GetWindowHandle();
-            SetWindowPos(hwnd, HWND_BOTTOM, _pinnedX, _pinnedY, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            var bounds = GetPinnedWindowBounds(hwnd);
+            UpdatePinnedWindowBounds(hwnd, bounds.x, bounds.y, width, height);
+            SetWindowPos(hwnd, HWND_BOTTOM, bounds.x, bounds.y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
 
         public static void InitializeDesktopPin()
         {
-            // 子类化方案不需要全局初始化，在 SetPinnedStyle 时按需 Subclass
-            System.Diagnostics.Debug.WriteLine("[WindowHelper] Desktop pin ready (subclass mode)");
+            System.Diagnostics.Debug.WriteLine("[WindowHelper] Desktop pin ready (window guard mode)");
         }
 
         public static void ShutdownDesktopPin()
         {
-            UnsubclassWindow();
+            StopPinnedWindowGuard();
         }
 
-        #region Window Subclass — 拦截 WM_SHOWWINDOW 防 Win+D
+        #region Pinned Window Guard — Win+D 键盘钩子快速恢复
 
-        private static void SubclassWindow(IntPtr hwnd)
+        private static void UpdatePinnedWindowBounds(IntPtr hwnd, int x, int y, int width, int height)
         {
-            if (_isSubclassed) return;
+            _pinnedX = x;
+            _pinnedY = y;
+            _pinnedWidth = width;
+            _pinnedHeight = height;
 
-            _subclassProc = new SUBCLASSPROC(SubclassProc);
-            if (SetWindowSubclass(hwnd, _subclassProc, SUBCLASS_ID, IntPtr.Zero))
+            lock (_pinnedGuardLock)
             {
-                _subclassedHwnd = hwnd;
-                _isSubclassed = true;
-                System.Diagnostics.Debug.WriteLine("[WindowHelper] Window subclassed for WM_SHOWWINDOW");
+                if (_pinnedWindows.TryGetValue(hwnd, out var state))
+                {
+                    state.X = x;
+                    state.Y = y;
+                    state.Width = width;
+                    state.Height = height;
+                    return;
+                }
+            }
+
+            StartPinnedWindowGuard(hwnd, x, y, width, height);
+        }
+
+        private static (int x, int y, int width, int height) GetPinnedWindowBounds(IntPtr hwnd)
+        {
+            lock (_pinnedGuardLock)
+            {
+                if (_pinnedWindows.TryGetValue(hwnd, out var state))
+                    return (state.X, state.Y, state.Width, state.Height);
+            }
+
+            return (_pinnedX, _pinnedY, _pinnedWidth, _pinnedHeight);
+        }
+
+        private static bool TryGetPinnedWindowState(IntPtr hwnd, out PinnedWindowGuardState? state)
+        {
+            lock (_pinnedGuardLock)
+            {
+                return _pinnedWindows.TryGetValue(hwnd, out state);
             }
         }
 
-        private static void UnsubclassWindow()
+        private static PinnedWindowGuardState[] GetPinnedWindowStates()
         {
-            if (!_isSubclassed || _subclassedHwnd == IntPtr.Zero) return;
-
-            RemoveWindowSubclass(_subclassedHwnd, _subclassProc!, SUBCLASS_ID);
-            _subclassedHwnd = IntPtr.Zero;
-            _subclassProc = null;
-            _isSubclassed = false;
-            System.Diagnostics.Debug.WriteLine("[WindowHelper] Window subclass removed");
+            lock (_pinnedGuardLock)
+            {
+                var states = new PinnedWindowGuardState[_pinnedWindows.Count];
+                _pinnedWindows.Values.CopyTo(states, 0);
+                return states;
+            }
         }
 
-        private static IntPtr SubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
-            IntPtr uIdSubclass, IntPtr dwRefData)
+        private static void StartPinnedWindowGuard(IntPtr hwnd, int x, int y, int width, int height)
         {
-            // Win+D / Show Desktop 试图隐藏窗口 → 阻止
-            if (uMsg == WM_SHOWWINDOW_MSG && wParam == IntPtr.Zero)
+            lock (_pinnedGuardLock)
             {
-                ShowWindow(hWnd, SW_SHOW);
-                SetWindowPos(hWnd, HWND_BOTTOM,
-                    _pinnedX, _pinnedY, _pinnedWidth, _pinnedHeight,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW);
-                return IntPtr.Zero; // 阻止默认处理（不隐藏）
+                if (_pinnedWindows.TryGetValue(hwnd, out var existing))
+                {
+                    existing.X = x;
+                    existing.Y = y;
+                    existing.Width = width;
+                    existing.Height = height;
+                    return;
+                }
+
+                _pinnedWindows[hwnd] = new PinnedWindowGuardState
+                {
+                    Hwnd = hwnd,
+                    X = x,
+                    Y = y,
+                    Width = width,
+                    Height = height
+                };
+                _isPinnedGuardActive = true;
             }
 
-            return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+            LogPinnedGuard($"START hwnd=0x{hwnd.ToInt64():X}, bounds=({x},{y},{width},{height})");
+
+            StartPinnedKeyboardHook();
+        }
+
+        private static void StopPinnedWindowGuard(IntPtr hwnd)
+        {
+            var removed = false;
+            lock (_pinnedGuardLock)
+            {
+                removed = _pinnedWindows.Remove(hwnd);
+                _isPinnedGuardActive = _pinnedWindows.Count > 0;
+            }
+
+            if (!removed)
+                return;
+
+            LogPinnedGuard($"STOP hwnd=0x{hwnd.ToInt64():X}");
+
+            if (_isPinnedGuardActive)
+                return;
+
+            StopPinnedKeyboardHook();
+            _isWinKeyDown = false;
+        }
+
+        private static void StopPinnedWindowGuard()
+        {
+            var states = GetPinnedWindowStates();
+            foreach (var state in states)
+                StopPinnedWindowGuard(state.Hwnd);
+        }
+
+        private static void StartPinnedKeyboardHook()
+        {
+            if (_keyboardHook != IntPtr.Zero)
+                return;
+
+            if (_keyboardHookProc == null)
+                _keyboardHookProc = new LowLevelKeyboardProc(PinnedKeyboardProc);
+
+            _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardHookProc, GetModuleHandle(null), 0);
+            LogPinnedGuard(_keyboardHook == IntPtr.Zero
+                ? $"KeyboardHook=FAILED error={Marshal.GetLastWin32Error()}"
+                : $"KeyboardHook=OK handle=0x{_keyboardHook.ToInt64():X}");
+        }
+
+        private static void StopPinnedKeyboardHook()
+        {
+            if (_keyboardHook == IntPtr.Zero)
+                return;
+
+            UnhookWindowsHookEx(_keyboardHook);
+            _keyboardHook = IntPtr.Zero;
+            _isWinKeyDown = false;
+        }
+
+        private static IntPtr PinnedKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode == HC_ACTION && _isPinnedGuardActive)
+            {
+                var keyInfo = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                var vkCode = (int)keyInfo.vkCode;
+                var message = wParam.ToInt32();
+                var isKeyDown = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+                var isKeyUp = message == WM_KEYUP || message == WM_SYSKEYUP;
+
+                if (vkCode == VK_LWIN || vkCode == VK_RWIN)
+                {
+                    _isWinKeyDown = isKeyDown || (!isKeyUp && _isWinKeyDown);
+                }
+                else if (vkCode == VK_D && isKeyDown && IsWinKeyCurrentlyDown())
+                {
+                    var now = DateTime.Now;
+                    if ((now - _lastWinDKeyboardTrigger).TotalMilliseconds >= 250)
+                    {
+                        _lastWinDKeyboardTrigger = now;
+                        LogPinnedGuard("Keyboard Win+D detected");
+                        SchedulePinnedRestore("keyboard Win+D", includeImmediate: false);
+                    }
+                }
+            }
+
+            return CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+        }
+
+        private static bool IsWinKeyCurrentlyDown()
+        {
+            return _isWinKeyDown ||
+                (GetAsyncKeyState(VK_LWIN) & unchecked((short)0x8000)) != 0 ||
+                (GetAsyncKeyState(VK_RWIN) & unchecked((short)0x8000)) != 0;
+        }
+
+        private static void SchedulePinnedRestore(string reason, bool includeImmediate)
+        {
+            var states = GetPinnedWindowStates();
+            if (states.Length == 0)
+                return;
+
+            var now = DateTime.Now;
+            var scheduled = false;
+            foreach (var state in states)
+            {
+                if ((now - state.LastRestoreBurstRequest).TotalMilliseconds < 30)
+                    continue;
+                state.LastRestoreBurstRequest = now;
+                state.ForceRestoreUntil = now.AddMilliseconds(450);
+                scheduled = true;
+
+                if ((now - state.LastRestoreBurstLog).TotalMilliseconds >= 500)
+                {
+                    state.LastRestoreBurstLog = now;
+                    LogPinnedGuard($"Schedule restore burst reason={reason}, hwnd=0x{state.Hwnd.ToInt64():X}");
+                }
+            }
+
+            if (!scheduled)
+                return;
+
+            if (includeImmediate)
+                _ = RestorePinnedWindowAfterDelay(0);
+            _ = RestorePinnedWindowAfterDelay(50);
+            _ = RestorePinnedWindowAfterDelay(150);
+            _ = RestorePinnedWindowAfterDelay(350);
+            _ = RestorePinnedWindowAfterDelay(700);
+            _ = RestorePinnedWindowAfterDelay(1200);
+        }
+
+        private static async System.Threading.Tasks.Task RestorePinnedWindowAfterDelay(int delayMs)
+        {
+            if (delayMs > 0)
+                await System.Threading.Tasks.Task.Delay(delayMs).ConfigureAwait(false);
+            EnsurePinnedWindowsVisible(forcePosition: true);
+        }
+
+        private static void EnsurePinnedWindowsVisible()
+        {
+            EnsurePinnedWindowsVisible(forcePosition: false);
+        }
+
+        private static void EnsurePinnedWindowsVisible(bool forcePosition)
+        {
+            var states = GetPinnedWindowStates();
+            foreach (var state in states)
+                EnsurePinnedWindowVisible(state, forcePosition);
+        }
+
+        private static void EnsurePinnedWindowVisible(PinnedWindowGuardState state, bool forcePosition)
+        {
+            var now = DateTime.Now;
+            var forceRestore = forcePosition || now <= state.ForceRestoreUntil;
+            var isIconic = IsIconic(state.Hwnd);
+            var isVisible = IsWindowVisible(state.Hwnd);
+            var needsRestore = !isVisible || isIconic;
+            if (!needsRestore && !forceRestore)
+                return;
+
+            if (!TryGetPinnedWindowState(state.Hwnd, out _))
+                return;
+
+            if (System.Threading.Interlocked.Exchange(ref state.IsRestoring, 1) == 1)
+                return;
+
+            try
+            {
+                isIconic = IsIconic(state.Hwnd);
+                isVisible = IsWindowVisible(state.Hwnd);
+                needsRestore = !isVisible || isIconic;
+                forceRestore = forcePosition || DateTime.Now <= state.ForceRestoreUntil;
+
+                if ((needsRestore || forceRestore) && (DateTime.Now - state.LastHeartbeatLog).TotalMilliseconds >= 100)
+                {
+                    state.LastHeartbeatLog = DateTime.Now;
+                    LogPinnedGuard($"Check visible={isVisible}, iconic={isIconic}, force={forceRestore}, hwnd=0x{state.Hwnd.ToInt64():X}");
+                }
+
+                if (isIconic)
+                {
+                    LogPinnedGuard("ShowWindow(SW_RESTORE)");
+                    ShowWindow(state.Hwnd, SW_RESTORE);
+                }
+
+                if (!isVisible)
+                {
+                    LogPinnedGuard("ShowWindow(SW_SHOW)");
+                    ShowWindow(state.Hwnd, SW_SHOW);
+                }
+                else if (forceRestore)
+                {
+                    ShowWindow(state.Hwnd, SW_SHOWNOACTIVATE);
+                }
+
+                if (needsRestore || forceRestore)
+                {
+                    if ((DateTime.Now - state.LastRestoreLog).TotalMilliseconds >= 100)
+                    {
+                        state.LastRestoreLog = DateTime.Now;
+                        LogPinnedGuard("Topmost pulse then HWND_TOP");
+                    }
+                    SetWindowPos(state.Hwnd, HWND_TOPMOST,
+                        state.X, state.Y, state.Width, state.Height,
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    SetWindowPos(state.Hwnd, HWND_NOTOPMOST,
+                        state.X, state.Y, state.Width, state.Height,
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    SetWindowPos(state.Hwnd, HWND_TOP,
+                        state.X, state.Y, state.Width, state.Height,
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    if ((DateTime.Now - state.LastRestoreLog).TotalMilliseconds >= 100)
+                    {
+                        state.LastRestoreLog = DateTime.Now;
+                        LogPinnedGuard($"SetWindowPos top bounds=({state.X},{state.Y},{state.Width},{state.Height}), force={forceRestore}, restore={needsRestore}, hwnd=0x{state.Hwnd.ToInt64():X}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogPinnedGuard($"Pinned restore failed: {ex.Message}");
+            }
+            finally
+            {
+                System.Threading.Interlocked.Exchange(ref state.IsRestoring, 0);
+            }
         }
 
         #endregion

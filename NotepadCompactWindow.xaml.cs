@@ -37,6 +37,7 @@ namespace Todo
             this.InitializeComponent();
             _dbService = dbService;
             _tabs = tabs ?? new ObservableCollection<NotepadTab>();
+            this.Closed += (s, e) => this.StopPinnedWindowGuard();
 
             this.ApplyCompactWindowStyle();
 
@@ -54,6 +55,7 @@ namespace Todo
                     Width = 400,
                     Height = wasMinimized ? 40 : 480
                 });
+                this.UpdatePinnedWindowGuard();
             }
 
             if (wasMinimized)
@@ -481,6 +483,7 @@ namespace Todo
                     Width = width,
                     Height = currentHeight
                 });
+                this.UpdatePinnedWindowGuard();
                 HeightChanged?.Invoke(currentHeight);
                 await Task.Delay(frameDurationMs);
             }
@@ -492,6 +495,7 @@ namespace Todo
                 Width = width,
                 Height = toHeight
             });
+            this.UpdatePinnedWindowGuard();
             HeightChanged?.Invoke(toHeight);
         }
         private void SyncTabOrder()

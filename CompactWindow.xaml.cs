@@ -39,6 +39,7 @@ namespace Todo
 
             // 固定到桌面右下角
             this.SetupPinnedWindow(yOffset);
+            this.Closed += (s, e) => this.StopPinnedWindowGuard();
         }
 
         private void SetupPinnedWindow(int yOffset = 40)
@@ -59,6 +60,7 @@ namespace Todo
                     Width = 400,
                     Height = wasMinimized ? 32 : 480
                 });
+                this.UpdatePinnedWindowGuard();
             }
 
             if (wasMinimized)
@@ -225,6 +227,7 @@ namespace Todo
                     Width = width,
                     Height = currentHeight
                 });
+                this.UpdatePinnedWindowGuard();
                 HeightChanged?.Invoke(currentHeight);
                 await Task.Delay(frameDurationMs);
             }
@@ -236,6 +239,7 @@ namespace Todo
                 Width = width,
                 Height = toHeight
             });
+            this.UpdatePinnedWindowGuard();
             HeightChanged?.Invoke(toHeight);
         }
 

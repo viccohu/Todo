@@ -2561,6 +2561,7 @@ namespace Todo
                     _notepadCompactWindow = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
+                    SaveCompactState();
                 };
                 _notepadCompactWindow.Closed += (s, e) =>
                 {
@@ -2582,6 +2583,7 @@ namespace Todo
                     _taskCompactPageTag = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
+                    SaveCompactState();
                 };
                 _taskCompactWindow.Closed += (s, e) =>
                 {
@@ -2594,6 +2596,7 @@ namespace Todo
             }
 
             UpdatePinButtonState();
+            SaveCompactState();
         }
 
         private void OnCompactWindowHeightChanged(int newHeight)
@@ -2623,6 +2626,7 @@ namespace Todo
                         Width = taskAppWindow.Size.Width,
                         Height = taskAppWindow.Size.Height
                     });
+                    _taskCompactWindow.UpdatePinnedWindowGuard();
                 }
 
                 if (notepadAppWindow != null)
@@ -2634,6 +2638,7 @@ namespace Todo
                         Width = notepadAppWindow.Size.Width,
                         Height = notepadAppWindow.Size.Height
                     });
+                    _notepadCompactWindow.UpdatePinnedWindowGuard();
                 }
             }
             else if (_taskCompactWindow != null)
@@ -2646,6 +2651,7 @@ namespace Todo
                         Width = w.Size.Width,
                         Height = w.Size.Height
                     });
+                _taskCompactWindow.UpdatePinnedWindowGuard();
             }
             else if (_notepadCompactWindow != null)
             {
@@ -2657,6 +2663,7 @@ namespace Todo
                         Width = w.Size.Width,
                         Height = w.Size.Height
                     });
+                _notepadCompactWindow.UpdatePinnedWindowGuard();
             }
         }
 
@@ -2712,6 +2719,7 @@ namespace Todo
                     _taskCompactPageTag = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
+                    SaveCompactState();
                 };
                 _taskCompactWindow.Closed += (s, e) =>
                 {
@@ -2740,6 +2748,7 @@ namespace Todo
                     _notepadCompactWindow = null;
                     RepositionCompactWindows();
                     UpdatePinButtonState();
+                    SaveCompactState();
                 };
                 _notepadCompactWindow.Closed += (s, e) =>
                 {
@@ -2752,6 +2761,7 @@ namespace Todo
 
             RepositionCompactWindows();
             UpdatePinButtonState();
+            SaveCompactState();
         }
 
 

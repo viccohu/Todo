@@ -67,6 +67,10 @@ namespace Todo
             AppLog.Info("App started");
             InitializeCustomTitleBar();
             InitializeCalendarBounds();
+
+            // 注册主窗口全局热键 (Alt+1/Alt+2 切换固定窗口, Alt+` 唤起主窗口)
+            WindowHelper.RegisterMainWindow(this.GetWindowHandle());
+
             LoadCustomGroups();
 
             // 全局快捷键：Ctrl+Shift+P 强制退出固定模式（兜底恢复手段）

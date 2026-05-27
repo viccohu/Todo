@@ -33,6 +33,30 @@ namespace Todo
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        // 全局热键 + 窗口子类化
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        [DllImport("comctl32.dll", SetLastError = true)]
+        private static extern bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
+            IntPtr uIdSubclass, IntPtr dwRefData);
+
+        [DllImport("comctl32.dll", SetLastError = true)]
+        private static extern bool RemoveWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
+            IntPtr uIdSubclass);
+
+        [DllImport("comctl32.dll", SetLastError = true)]
+        private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+
+        private delegate IntPtr SUBCLASSPROC(IntPtr hWnd, uint uMsg, IntPtr wParam,
+            IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
+
+        [DllImport("user32.dll")]
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
         [DllImport("user32.dll")]
@@ -173,9 +197,17 @@ namespace Todo
         private const int VK_D = 0x44;
         private const int VK_LWIN = 0x5B;
         private const int VK_RWIN = 0x5C;
-        private const int VK_F11 = 0x7A;
-        private const int VK_F12 = 0x7B;
         private const int VK_CONTROL = 0x11;
+        private const int VK_MENU = 0x12;
+
+        // 全局热键
+        private const uint MOD_ALT = 0x0001;
+        private const uint MOD_CONTROL = 0x0002;
+        private const uint MOD_NOREPEAT = 0x4000;
+        private const uint WM_HOTKEY = 0x0312;
+        private const int HOTKEY_ID_1 = 1;
+        private const int HOTKEY_ID_2 = 2;
+        private const int HOTKEY_ID_GRAVE = 3;
 
         #endregion
 
@@ -207,10 +239,15 @@ namespace Todo
         private static bool _isWinKeyDown = false;
         private static DateTime _lastWinDKeyboardTrigger = DateTime.MinValue;
 
-        // F11/F12 快捷键窗口唤起
+        // 键盘钩子快捷键防抖
+        private static DateTime _lastHotkeyHookTrigger = DateTime.MinValue;
+
+        // 主窗口全局唤起
+        private static IntPtr _mainWindowHwnd = IntPtr.Zero;
+        private static SUBCLASSPROC? _hotkeySubclassProc;
+
+        // 固定窗口顺序（快捷键唤起用）
         private static readonly System.Collections.Generic.List<IntPtr> _pinnedWindowOrder = new();
-        private static bool _isF11Pressed, _isF12Pressed;
-        private static bool _ctrlHeldOnF11Press, _ctrlHeldOnF12Press;
 
         // 壁纸层嵌入状态
         private static IntPtr _originalParent = IntPtr.Zero;
@@ -408,6 +445,23 @@ namespace Todo
             System.Diagnostics.Debug.WriteLine("[WindowHelper] Desktop pin ready (window guard mode)");
         }
 
+        public static void RegisterMainWindow(IntPtr hwnd)
+        {
+            _mainWindowHwnd = hwnd;
+
+            // 窗口子类化处理 WM_HOTKEY
+            _hotkeySubclassProc ??= new SUBCLASSPROC(HotkeySubclassProc);
+            SetWindowSubclass(hwnd, _hotkeySubclassProc, (IntPtr)1, IntPtr.Zero);
+
+            // 注册全局热键: Alt+1, Alt+2, Alt+`
+            RegisterHotKey(hwnd, HOTKEY_ID_1, MOD_ALT | MOD_NOREPEAT, 0x31);
+            RegisterHotKey(hwnd, HOTKEY_ID_2, MOD_ALT | MOD_NOREPEAT, 0x32);
+            RegisterHotKey(hwnd, HOTKEY_ID_GRAVE, MOD_ALT | MOD_NOREPEAT, 0xC0);
+
+            StartPinnedKeyboardHook();
+            LogPinnedGuard($"MainWindow registered hwnd=0x{hwnd.ToInt64():X}");
+        }
+
         public static void ShutdownDesktopPin()
         {
             StopPinnedWindowGuard();
@@ -513,7 +567,6 @@ namespace Todo
                     if (idx >= 0)
                     {
                         _pinnedWindowOrder.RemoveAt(idx);
-                        ResetFKeyState(idx);
                     }
                 }
             }
@@ -530,11 +583,7 @@ namespace Todo
             _isWinKeyDown = false;
         }
 
-        private static void ResetFKeyState(int index)
-        {
-            if (index == 0) { _isF11Pressed = false; _ctrlHeldOnF11Press = false; }
-            else if (index == 1) { _isF12Pressed = false; _ctrlHeldOnF12Press = false; }
-        }
+
 
         private static void StopPinnedWindowGuard()
         {
@@ -567,9 +616,54 @@ namespace Todo
             _isWinKeyDown = false;
         }
 
+        private static IntPtr HotkeySubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
+            IntPtr uIdSubclass, IntPtr dwRefData)
+        {
+            if (uMsg == WM_HOTKEY)
+            {
+                int id = wParam.ToInt32();
+                LogPinnedGuard($"WM_HOTKEY id={id}");
+                switch (id)
+                {
+                    case HOTKEY_ID_1: TogglePinnedWindow(0); break;
+                    case HOTKEY_ID_2: TogglePinnedWindow(1); break;
+                    case HOTKEY_ID_GRAVE: ShowMainWindow(); break;
+                }
+                return (IntPtr)0;
+            }
+            return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+        }
+
+        private static void ShowMainWindow()
+        {
+            if (_mainWindowHwnd == IntPtr.Zero) return;
+            if (IsIconic(_mainWindowHwnd))
+                ShowWindow(_mainWindowHwnd, SW_RESTORE);
+            if (!IsWindowVisible(_mainWindowHwnd))
+                ShowWindow(_mainWindowHwnd, SW_SHOW);
+
+            // Win32: force to top and grab focus
+            SetWindowPos(_mainWindowHwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            SetWindowPos(_mainWindowHwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            SetForegroundWindow(_mainWindowHwnd);
+
+            // WinUI 3: sync internal state
+            var windowId = Win32Interop.GetWindowIdFromWindow(_mainWindowHwnd);
+            var appWindow = AppWindow.GetFromWindowId(windowId);
+            if (appWindow != null)
+            {
+                if (!appWindow.IsVisible)
+                    appWindow.Show(true);
+                appWindow.MoveInZOrderAtTop();
+            }
+            LogPinnedGuard("ShowMainWindow");
+        }
+
         private static IntPtr PinnedKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            if (nCode == HC_ACTION && _isPinnedGuardActive)
+            if (nCode == HC_ACTION)
             {
                 var keyInfo = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
                 var vkCode = (int)keyInfo.vkCode;
@@ -577,30 +671,49 @@ namespace Todo
                 var isKeyDown = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
                 var isKeyUp = message == WM_KEYUP || message == WM_SYSKEYUP;
 
-                if (vkCode == VK_LWIN || vkCode == VK_RWIN)
+                // Win+D detection (only when pinned windows active)
+                if (_isPinnedGuardActive)
                 {
-                    _isWinKeyDown = isKeyDown || (!isKeyUp && _isWinKeyDown);
+                    if (vkCode == VK_LWIN || vkCode == VK_RWIN)
+                    {
+                        _isWinKeyDown = isKeyDown || (!isKeyUp && _isWinKeyDown);
+                    }
+                    else if (vkCode == VK_D && isKeyDown && IsWinKeyCurrentlyDown())
+                    {
+                        var now = DateTime.Now;
+                        if ((now - _lastWinDKeyboardTrigger).TotalMilliseconds >= 250)
+                        {
+                            _lastWinDKeyboardTrigger = now;
+                            LogPinnedGuard("Keyboard Win+D detected");
+                            SchedulePinnedRestore("keyboard Win+D", includeImmediate: false);
+                        }
+                    }
                 }
-                else if (vkCode == VK_D && isKeyDown && IsWinKeyCurrentlyDown())
+
+                // Global hotkey fallback: Alt+1 / Alt+2 / Alt+`
+                if (isKeyDown && !IsCtrlDown() && IsAltDown())
                 {
                     var now = DateTime.Now;
-                    if ((now - _lastWinDKeyboardTrigger).TotalMilliseconds >= 250)
+                    if ((now - _lastHotkeyHookTrigger).TotalMilliseconds >= 300)
                     {
-                        _lastWinDKeyboardTrigger = now;
-                        LogPinnedGuard("Keyboard Win+D detected");
-                        SchedulePinnedRestore("keyboard Win+D", includeImmediate: false);
-                    }
-                }
-                else if (vkCode == VK_F11 || vkCode == VK_F12)
-                {
-                    var isF11 = vkCode == VK_F11;
-                    if (isKeyDown)
-                    {
-                        HandleFKeyDown(isF11 ? 0 : 1, isF11);
-                    }
-                    else if (isKeyUp)
-                    {
-                        HandleFKeyUp(isF11 ? 0 : 1, isF11);
+                        switch (vkCode)
+                        {
+                            case 0x31:
+                                _lastHotkeyHookTrigger = now;
+                                LogPinnedGuard("Keyboard hook Alt+1");
+                                TogglePinnedWindow(0);
+                                break;
+                            case 0x32:
+                                _lastHotkeyHookTrigger = now;
+                                LogPinnedGuard("Keyboard hook Alt+2");
+                                TogglePinnedWindow(1);
+                                break;
+                            case 0xC0:
+                                _lastHotkeyHookTrigger = now;
+                                LogPinnedGuard("Keyboard hook Alt+`");
+                                ShowMainWindow();
+                                break;
+                        }
                     }
                 }
             }
@@ -608,46 +721,7 @@ namespace Todo
             return CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
         }
 
-        private static void HandleFKeyDown(int index, bool isF11)
-        {
-            if (isF11)
-            {
-                if (_isF11Pressed) return;
-                _ctrlHeldOnF11Press = IsCtrlDown();
-                _isF11Pressed = true;
-            }
-            else
-            {
-                if (_isF12Pressed) return;
-                _ctrlHeldOnF12Press = IsCtrlDown();
-                _isF12Pressed = true;
-            }
 
-            var hwnd = GetPinnedWindowByIndex(index);
-            if (hwnd.HasValue)
-            {
-                LogPinnedGuard($"F{(isF11 ? "11" : "12")} raise hwnd=0x{hwnd.Value.ToInt64():X} ctrl={IsCtrlDown()}");
-                RaisePinnedWindow(hwnd.Value);
-            }
-        }
-
-        private static void HandleFKeyUp(int index, bool isF11)
-        {
-            var ctrlHeld = isF11 ? _ctrlHeldOnF11Press : _ctrlHeldOnF12Press;
-
-            if (isF11) _isF11Pressed = false;
-            else _isF12Pressed = false;
-
-            if (ctrlHeld)
-                return;
-
-            var hwnd = GetPinnedWindowByIndex(index);
-            if (hwnd.HasValue)
-            {
-                LogPinnedGuard($"F{(isF11 ? "11" : "12")} lower hwnd=0x{hwnd.Value.ToInt64():X}");
-                LowerPinnedWindow(hwnd.Value);
-            }
-        }
 
         private static bool IsWinKeyCurrentlyDown()
         {
@@ -661,6 +735,11 @@ namespace Todo
             return (GetAsyncKeyState(VK_CONTROL) & unchecked((short)0x8000)) != 0;
         }
 
+        private static bool IsAltDown()
+        {
+            return (GetAsyncKeyState(VK_MENU) & unchecked((short)0x8000)) != 0;
+        }
+
         private static IntPtr? GetPinnedWindowByIndex(int index)
         {
             lock (_pinnedGuardLock)
@@ -671,23 +750,28 @@ namespace Todo
             return null;
         }
 
-        private static void RaisePinnedWindow(IntPtr hwnd)
+        private static void TogglePinnedWindow(int index)
         {
-            if (IsIconic(hwnd))
-                ShowWindow(hwnd, SW_RESTORE);
-            if (!IsWindowVisible(hwnd))
-                ShowWindow(hwnd, SW_SHOW);
+            var hwnd = GetPinnedWindowByIndex(index);
+            if (!hwnd.HasValue) return;
 
-            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            var appWindow = AppWindow.GetFromWindowId(windowId);
-            appWindow?.MoveInZOrderAtTop();
-        }
+            if (IsIconic(hwnd.Value))
+                ShowWindow(hwnd.Value, SW_RESTORE);
+            if (!IsWindowVisible(hwnd.Value))
+                ShowWindow(hwnd.Value, SW_SHOW);
 
-        private static void LowerPinnedWindow(IntPtr hwnd)
-        {
-            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            // Bring to top of Z-order and grab focus
+            SetWindowPos(hwnd.Value, HWND_TOP, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE);
+            SetForegroundWindow(hwnd.Value);
+
+            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd.Value);
             var appWindow = AppWindow.GetFromWindowId(windowId);
-            appWindow?.MoveInZOrderAtBottom();
+            if (appWindow != null)
+            {
+                appWindow.Show(true);
+            }
+            LogPinnedGuard($"TogglePinnedWindow idx={index}");
         }
 
         private static void SchedulePinnedRestore(string reason, bool includeImmediate)

@@ -11,9 +11,7 @@ namespace Todo
     {
         private static void LogPinnedGuard(string message)
         {
-            var line = "[PinnedGuard] " + message;
-            System.Diagnostics.Debug.WriteLine(line);
-            System.Diagnostics.Trace.WriteLine(line);
+            System.Diagnostics.Debug.WriteLine("[PinnedGuard] " + message);
         }
 
         #region P/Invoke Declarations
@@ -68,9 +66,6 @@ namespace Todo
         [DllImport("dwmapi.dll", PreserveSig = true)]
         private static extern int DwmSetWindowAttribute(IntPtr hWnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
-        [DllImport("user32.dll")]
-        private static extern short GetAsyncKeyState(int vKey);
-
         #endregion
 
         #region Structs
@@ -117,6 +112,7 @@ namespace Todo
         private const uint SWP_NOACTIVATE = 0x0010;
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_SHOWWINDOW = 0x0040;
+        private const uint SWP_NOSENDCHANGING = 0x0400;
         private const int SW_SHOW = 5;
         private const int SW_SHOWNOACTIVATE = 4;
         private const int SW_RESTORE = 9;
@@ -127,17 +123,13 @@ namespace Todo
 
         private const int DWMWA_EXCLUDED_FROM_PEEK = 12;
 
-        // Global hotkeys
+        // Global hotkeys (RegisterHotKey + WM_HOTKEY via SetWindowSubclass)
         private const uint MOD_ALT = 0x0001;
-        private const uint MOD_CONTROL = 0x0002;
         private const uint MOD_NOREPEAT = 0x4000;
         private const uint WM_HOTKEY = 0x0312;
         private const int HOTKEY_ID_1 = 1;
         private const int HOTKEY_ID_2 = 2;
         private const int HOTKEY_ID_GRAVE = 3;
-
-        private const int VK_CONTROL = 0x11;
-        private const int VK_MENU = 0x12;
 
         #endregion
 
@@ -162,6 +154,8 @@ namespace Todo
         // Global hotkey state
         private static IntPtr _mainWindowHwnd = IntPtr.Zero;
         private static SUBCLASSPROC? _hotkeySubclassProc;
+        private static bool _hotkeysRegistered = false;
+        private static DateTime _lastHotkeyTime = DateTime.MinValue;
 
         // Pinned window order for hotkey toggle
         private static readonly System.Collections.Generic.List<IntPtr> _pinnedWindowOrder = new();
@@ -221,12 +215,11 @@ namespace Todo
             int excludedFromPeek = 1;
             DwmSetWindowAttribute(hwnd, DWMWA_EXCLUDED_FROM_PEEK, ref excludedFromPeek, sizeof(int));
 
-            // Position the window and show it
+            // Position the window and show it (Z-order handled by DesktopPinService)
             SetWindowPos(hwnd, IntPtr.Zero, _pinnedX, _pinnedY, width, height,
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             ShowWindow(hwnd, SW_SHOW);
 
-            // DesktopPinService handles Z-order anchoring via helper windows
             DesktopPinService.AddPinnedWindow(hwnd);
             DesktopPinService.UpdatePinnedWindowPosition(hwnd, _pinnedX, _pinnedY, _pinnedWidth, _pinnedHeight);
 
@@ -258,7 +251,6 @@ namespace Todo
             int cornerPreference = DWMWCP_ROUND;
             DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPreference, sizeof(int));
 
-            // Exclude from Aero Peek
             int excludedFromPeek = 1;
             DwmSetWindowAttribute(hwnd, DWMWA_EXCLUDED_FROM_PEEK, ref excludedFromPeek, sizeof(int));
 
@@ -370,18 +362,20 @@ namespace Todo
 
         public static void RegisterMainWindow(IntPtr hwnd)
         {
+            if (_hotkeysRegistered) return; // Already registered, prevent duplicate subclass
+
             _mainWindowHwnd = hwnd;
 
-            // Subclass for WM_HOTKEY handling
             _hotkeySubclassProc ??= new SUBCLASSPROC(HotkeySubclassProc);
             SetWindowSubclass(hwnd, _hotkeySubclassProc, (IntPtr)1, IntPtr.Zero);
 
-            // Register global hotkeys: Alt+1, Alt+2, Alt+`
-            RegisterHotKey(hwnd, HOTKEY_ID_1, MOD_ALT | MOD_NOREPEAT, 0x31);
-            RegisterHotKey(hwnd, HOTKEY_ID_2, MOD_ALT | MOD_NOREPEAT, 0x32);
-            RegisterHotKey(hwnd, HOTKEY_ID_GRAVE, MOD_ALT | MOD_NOREPEAT, 0xC0);
+            bool ok1 = RegisterHotKey(hwnd, HOTKEY_ID_1, MOD_ALT | MOD_NOREPEAT, 0x31);
+            bool ok2 = RegisterHotKey(hwnd, HOTKEY_ID_2, MOD_ALT | MOD_NOREPEAT, 0x32);
+            bool ok3 = RegisterHotKey(hwnd, HOTKEY_ID_GRAVE, MOD_ALT | MOD_NOREPEAT, 0xC0);
+            LogPinnedGuard($"MainWindow registered hwnd=0x{hwnd.ToInt64():X}, " +
+                $"RegisterHotKey: Alt+1={ok1}, Alt+2={ok2}, Alt+`={ok3}");
 
-            LogPinnedGuard($"MainWindow registered hwnd=0x{hwnd.ToInt64():X}");
+            _hotkeysRegistered = true;
         }
 
         public static void ShutdownDesktopPin()
@@ -486,7 +480,6 @@ namespace Todo
 
             LogPinnedGuard($"STOP hwnd=0x{hwnd.ToInt64():X}");
 
-            // Unregister from DesktopPinService
             DesktopPinService.RemovePinnedWindow(hwnd);
         }
 
@@ -499,13 +492,20 @@ namespace Todo
 
         #endregion
 
-        #region Global Hotkey Handling
+        #region Global Hotkey Handling (RegisterHotKey → WM_HOTKEY)
 
         private static IntPtr HotkeySubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
             IntPtr uIdSubclass, IntPtr dwRefData)
         {
             if (uMsg == WM_HOTKEY)
             {
+                // Debounce: WinUI 3 may reflect WM_HOTKEY, causing duplicate deliveries.
+                // Ignore repeats within 50ms.
+                var now = DateTime.Now;
+                if ((now - _lastHotkeyTime).TotalMilliseconds < 50)
+                    return (IntPtr)0;
+                _lastHotkeyTime = now;
+
                 int id = wParam.ToInt32();
                 LogPinnedGuard($"WM_HOTKEY id={id}");
                 switch (id)
@@ -527,14 +527,13 @@ namespace Todo
             if (!IsWindowVisible(_mainWindowHwnd))
                 ShowWindow(_mainWindowHwnd, SW_SHOW);
 
-            // Win32: force to top and grab focus
+            // TOPMOST pulse to force window to front, then drop to normal
             SetWindowPos(_mainWindowHwnd, HWND_TOPMOST, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
             SetWindowPos(_mainWindowHwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
             SetForegroundWindow(_mainWindowHwnd);
 
-            // WinUI 3: sync internal state
             var windowId = Win32Interop.GetWindowIdFromWindow(_mainWindowHwnd);
             var appWindow = AppWindow.GetFromWindowId(windowId);
             if (appWindow != null)
@@ -544,16 +543,6 @@ namespace Todo
                 appWindow.MoveInZOrderAtTop();
             }
             LogPinnedGuard("ShowMainWindow");
-        }
-
-        private static bool IsCtrlDown()
-        {
-            return (GetAsyncKeyState(VK_CONTROL) & unchecked((short)0x8000)) != 0;
-        }
-
-        private static bool IsAltDown()
-        {
-            return (GetAsyncKeyState(VK_MENU) & unchecked((short)0x8000)) != 0;
         }
 
         private static IntPtr? GetPinnedWindowByIndex(int index)
@@ -576,9 +565,15 @@ namespace Todo
             if (!IsWindowVisible(hwnd.Value))
                 ShowWindow(hwnd.Value, SW_SHOW);
 
-            // Bring to top of Z-order and grab focus
-            SetWindowPos(hwnd.Value, HWND_TOP, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE);
+            // SWP_NOSENDCHANGING bypasses DesktopPinService's Z-order block.
+            // HWND_TOP alone cannot override the foreground window's Z-order
+            // privilege, so we use a TOPMOST pulse: force to absolute top
+            // (TOPMOST layer), then drop back to normal. This lands the window
+            // above all normal windows in a single call.
+            SetWindowPos(hwnd.Value, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOSENDCHANGING);
+            SetWindowPos(hwnd.Value, HWND_NOTOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOSENDCHANGING);
             SetForegroundWindow(hwnd.Value);
 
             var windowId = Win32Interop.GetWindowIdFromWindow(hwnd.Value);
@@ -588,6 +583,7 @@ namespace Todo
                 appWindow.Show(true);
             }
             LogPinnedGuard($"TogglePinnedWindow idx={index}");
+            DesktopPinService.NotifyWindowLifted(hwnd.Value);
         }
 
         #endregion

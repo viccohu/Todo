@@ -48,6 +48,9 @@ namespace Todo
             string lpszClass, string lpszWindow);
 
         [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
@@ -187,12 +190,11 @@ namespace Todo
         private static bool _initialized;
         private static IntPtr _lastDesktopHost;
         private static volatile int _initInProgress;
+        private static IntPtr _liftedWindow = IntPtr.Zero;  // Hotkey-lifted window awaiting auto-return
 
         private static void Log(string m)
         {
-            var line = $"[DesktopPin] {m}";
-            Debug.WriteLine(line);
-            System.Diagnostics.Trace.WriteLine(line);
+            Debug.WriteLine($"[DesktopPin] {m}");
         }
 
         #endregion
@@ -355,6 +357,7 @@ namespace Todo
         {
             RemovePosChangingSubclass(hwnd);
             lock (_lock) { _pinnedWindows.Remove(hwnd); }
+            if (_liftedWindow == hwnd) _liftedWindow = IntPtr.Zero;
             Log($"Unpinned: 0x{hwnd.ToInt64():X}");
         }
 
@@ -363,6 +366,15 @@ namespace Todo
             lock (_lock) { if (!_pinnedWindows.Contains(hwnd)) return; }
             SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h,
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+        }
+
+        /// <summary>
+        /// Called when a pinned window is hotkey-lifted for interaction.
+        /// The service will auto-return it to desktop when focus is lost.
+        /// </summary>
+        public static void NotifyWindowLifted(IntPtr hwnd)
+        {
+            _liftedWindow = hwnd;
         }
 
         #endregion
@@ -628,7 +640,18 @@ namespace Todo
                 PrepareHelper(desktopHost);
                 RepositionAll();
             }
-            // Normal mode + no state change: skip reposition to avoid flicker
+            // Normal mode + no state change: skip reposition to avoid flicker,
+            // but check if a hotkey-lifted window should auto-return to desktop.
+            if (_liftedWindow != IntPtr.Zero)
+            {
+                var fg = GetForegroundWindow();
+                if (fg != IntPtr.Zero && fg != _liftedWindow)
+                {
+                    Log($"Auto-return: lifted 0x{_liftedWindow.ToInt64():X} lost focus to 0x{fg.ToInt64():X}");
+                    _liftedWindow = IntPtr.Zero;
+                    RepositionAll();
+                }
+            }
             return false;
         }
 

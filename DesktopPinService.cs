@@ -90,6 +90,20 @@ namespace Todo
         private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam,
             uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
+            WinEventProcDelegate lpfnWinEventProc, int idProcess, int idThread, uint dwFlags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+        [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+        private delegate void WinEventProcDelegate(IntPtr hWinEventHook, uint eventType,
+            IntPtr hwnd, int idObject, int idChild, int dwEventThread, uint dwmsEventTime);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
         [StructLayout(LayoutKind.Sequential)]
         private struct WINDOWPOS
         {
@@ -148,6 +162,11 @@ namespace Todo
         private const uint INTERVAL_RESTORE = 100;  // Faster polling during ShowDesktop
         private const uint SMTO_NORMAL = 0x0000;
 
+        // WinEvent hook constants
+        private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+        private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+        private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+
         #endregion
 
         #region State
@@ -160,6 +179,8 @@ namespace Todo
         private static readonly HashSet<IntPtr> _subclassedWindows = new();
 
         private static SUBCLASSPROC? _posChangingProcDelegate;
+        private static WinEventProcDelegate? _winEventProcDelegate;
+        private static IntPtr _winEventHook = IntPtr.Zero;
         private static DispatcherQueueTimer? _pollTimer;
 
         private static IntPtr _progmanHandle = IntPtr.Zero;
@@ -242,6 +263,20 @@ namespace Todo
                     Log("WARNING: no DispatcherQueue, polling disabled");
                 }
 
+                // WinEvent hook: detects WorkerW/Progman becoming foreground.
+                // This provides instant ShowDesktop detection, eliminating the
+                // polling delay that causes flicker.
+                _winEventProcDelegate = WinEventProc;
+                _winEventHook = SetWinEventHook(
+                    EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+                    IntPtr.Zero, _winEventProcDelegate,
+                    0, 0,
+                    WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+                if (_winEventHook != IntPtr.Zero)
+                    Log($"WinEventHook OK: 0x{_winEventHook.ToInt64():X}");
+                else
+                    Log($"WinEventHook FAILED: err={Marshal.GetLastWin32Error()}");
+
                 _initialized = true;
                 Log("Initialize OK");
             }
@@ -264,6 +299,13 @@ namespace Todo
         public static void Shutdown()
         {
             Log("Shutting down...");
+
+            if (_winEventHook != IntPtr.Zero)
+            {
+                UnhookWinEvent(_winEventHook);
+                _winEventHook = IntPtr.Zero;
+                _winEventProcDelegate = null;
+            }
 
             _pollTimer?.Stop();
             _pollTimer = null;
@@ -468,7 +510,80 @@ namespace Todo
         }
 
         private static int _checkCount;
-        private static void CheckShowDesktopState()
+
+        /// <summary>
+        /// WinEvent hook callback. Fires when any window becomes foreground.
+        /// Provides instant ShowDesktop detection (Rainmeter's approach).
+        /// </summary>
+        private static void WinEventProc(IntPtr hWinEventHook, uint eventType,
+            IntPtr hwnd, int idObject, int idChild, int dwEventThread, uint dwmsEventTime)
+        {
+            if (eventType != EVENT_SYSTEM_FOREGROUND) return;
+            if (_showDesktop) return; // Only detect transition INTO ShowDesktop
+
+            try
+            {
+                var progman = FindWindow(PROGMAN_CLASS, null);
+                if (progman == IntPtr.Zero) return;
+
+                if (ShouldUseShellWindowAsDesktopIconsHost())
+                {
+                    // Win11 24H2+: Progman itself is the desktop host
+                    if (hwnd == progman)
+                    {
+                        // Retry up to 5 times with 2ms delay for SHELLDLL_DefView to appear
+                        for (int i = 0; i < 5; i++)
+                        {
+                            if (CheckShowDesktopState()) break;
+                            System.Threading.Thread.Sleep(2);
+                        }
+                    }
+                    return;
+                }
+
+                // Pre-24H2: WorkerW becoming foreground indicates desktop activation
+                if (!BelongToSameProcess(progman, hwnd)) return;
+
+                var sb = new System.Text.StringBuilder(64);
+                if (GetClassName(hwnd, sb, sb.Capacity) == 0) return;
+                if (sb.ToString() != WORKERW_CLASS) return;
+
+                // Wait for SHELLDLL_DefView to be ready (up to 5 retries, 2ms each)
+                int loop = 0;
+                while (loop < 5 && FindWindowEx(hwnd, IntPtr.Zero, SHELLDLL_DEFVIEW_CLASS, null) == IntPtr.Zero)
+                {
+                    System.Threading.Thread.Sleep(2);
+                    loop++;
+                }
+
+                if (loop < 5)
+                {
+                    loop = 0;
+                    while (loop < 5 && !CheckShowDesktopState())
+                    {
+                        System.Threading.Thread.Sleep(2);
+                        loop++;
+                    }
+                }
+            }
+            catch { /* Hook callback must not throw */ }
+        }
+
+        /// <summary>
+        /// Returns true if the two windows belong to the same process.
+        /// </summary>
+        private static bool BelongToSameProcess(IntPtr hwndA, IntPtr hwndB)
+        {
+            GetWindowThreadProcessId(hwndA, out uint pidA);
+            GetWindowThreadProcessId(hwndB, out uint pidB);
+            return pidA == pidB;
+        }
+
+        /// <summary>
+        /// Checks the ShowDesktop state and repositions windows if it changed.
+        /// Returns true if the state changed.
+        /// </summary>
+        private static bool CheckShowDesktopState()
         {
             var desktopHost = FindDesktopHost();
 
@@ -493,24 +608,28 @@ namespace Todo
                 _showDesktop = detected;
                 Log($"*** ShowDesktop = {_showDesktop} ***");
 
-                // Switch polling speed: 100ms during ShowDesktop, 250ms normal.
-                // This matches Rainmeter's approach: faster recovery when user
-                // interacts with windows during ShowDesktop (e.g. clicking pinned
-                // window then clicking desktop).
                 if (_pollTimer != null)
                 {
                     _pollTimer.Interval = TimeSpan.FromMilliseconds(
                         _showDesktop ? INTERVAL_RESTORE : INTERVAL_SHOWDESKTOP);
                     Log($"Poll interval: {(_showDesktop ? INTERVAL_RESTORE : INTERVAL_SHOWDESKTOP)}ms");
                 }
-            }
 
-            // Always reposition on every tick when ShowDesktop is active.
-            // User interactions (clicking pinned window, clicking desktop) can
-            // cause Windows to reorder the Z-order between state changes.
-            // Continuous repositioning ensures pinned windows stay anchored.
-            PrepareHelper(desktopHost);
-            RepositionAll();
+                // State changed: reposition immediately
+                PrepareHelper(desktopHost);
+                RepositionAll();
+                return true;
+            }
+            else if (_showDesktop)
+            {
+                // During ShowDesktop, continuously fix Z-order.
+                // User interactions (clicking pinned window then desktop) can
+                // cause Windows to reorder windows between state changes.
+                PrepareHelper(desktopHost);
+                RepositionAll();
+            }
+            // Normal mode + no state change: skip reposition to avoid flicker
+            return false;
         }
 
         private static IntPtr FindDesktopHost()

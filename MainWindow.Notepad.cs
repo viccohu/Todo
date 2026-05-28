@@ -429,6 +429,19 @@ namespace Todo
                 SwitchToEditMode();
                 e.Handled = true;
             }
+            else if (_isPreviewMode)
+            {
+                if (e.Key == Windows.System.VirtualKey.Q)
+                {
+                    SwitchToPrevNotepadTab();
+                    e.Handled = true;
+                }
+                else if (e.Key == Windows.System.VirtualKey.E)
+                {
+                    SwitchToNextNotepadTab();
+                    e.Handled = true;
+                }
+            }
         }
 
         private void NotepadEditor_LostFocus(object sender, RoutedEventArgs e)
@@ -452,6 +465,36 @@ namespace Todo
         }
 
         private void NotepadEditor_TextChanged(object sender, TextChangedEventArgs e) { }
+
+        private void SwitchToPrevNotepadTab()
+        {
+            if (NotepadTabView.TabItems.Count <= 1) return;
+            int idx = NotepadTabView.SelectedIndex;
+            NotepadTabView.SelectedIndex = idx <= 0 ? NotepadTabView.TabItems.Count - 1 : idx - 1;
+        }
+
+        private void SwitchToNextNotepadTab()
+        {
+            if (NotepadTabView.TabItems.Count <= 1) return;
+            int idx = NotepadTabView.SelectedIndex;
+            NotepadTabView.SelectedIndex = idx >= NotepadTabView.TabItems.Count - 1 ? 0 : idx + 1;
+        }
+
+        private void NotepadContent_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            // Only handle Q/E in preview mode (not editing)
+            if (!_isPreviewMode) return;
+            if (e.Key == Windows.System.VirtualKey.Q)
+            {
+                SwitchToPrevNotepadTab();
+                e.Handled = true;
+            }
+            else if (e.Key == Windows.System.VirtualKey.E)
+            {
+                SwitchToNextNotepadTab();
+                e.Handled = true;
+            }
+        }
 
         private async void NotepadOpen_Click(object sender, RoutedEventArgs e)
         {

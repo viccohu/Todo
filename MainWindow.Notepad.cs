@@ -23,7 +23,7 @@ namespace Todo
         private bool _isNotepadTabSwitching = false;
         private bool _isPreviewMode = true;
 
-        // 误关闭恢复
+        // Undo close
         private NotepadTab? _closedNotepadTab;
         private DispatcherTimer? _closeUndoTimer;
         private int _undoCountdown;
@@ -60,7 +60,6 @@ namespace Todo
         {
             _isNotepadInitialized = true;
 
-            // 如果固定窗口已经加载了标签数据（_notepadTabs 非空），直接同步 TabView，不重读 DB
             if (_notepadTabs.Count > 0)
             {
                 foreach (var tab in _notepadTabs)
@@ -93,7 +92,6 @@ namespace Todo
             };
             _notepadSaveTimer.Start();
 
-            // 监听集合变化（固定模式修改标签页时同步）
             _notepadTabs.CollectionChanged += (s, args) =>
             {
                 DispatcherQueue.TryEnqueue(() =>
@@ -102,7 +100,6 @@ namespace Todo
                     {
                         foreach (NotepadTab tab in args.NewItems)
                         {
-                            // 去重：MainWindow 自己加的已经在 TabView 里了
                             bool exists = false;
                             foreach (var item in NotepadTabView.TabItems)
                                 if (item is TabViewItem tvi && tvi.Tag == tab)
@@ -125,7 +122,6 @@ namespace Todo
                     }
                     else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move)
                     {
-                        // 同步标签排序：根据集合顺序重建 TabView
                         NotepadTabView.TabItems.Clear();
                         foreach (var tab in _notepadTabs)
                             NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
@@ -134,7 +130,6 @@ namespace Todo
                 });
             };
 
-            // 在标签切换时同步排序（拖动排序后用户必然会点击标签）
             NotepadTabView.SelectionChanged += (s, args) =>
             {
                 DispatcherQueue.TryEnqueue(SyncNotepadTabOrder);
@@ -179,7 +174,6 @@ namespace Todo
             };
             header.Children.Add(externalIndicator);
 
-            // 绑定标题，支持固定窗口同步
             var titleBinding = new Microsoft.UI.Xaml.Data.Binding
             {
                 Source = tab,
@@ -272,7 +266,6 @@ namespace Todo
         private void SaveCurrentNotepadTabContentToDatabase()
         {
             if (_currentNotepadTab == null) return;
-            var text = NotepadEditor.Text;
             _dbService.UpdateNotepadTabContent(_currentNotepadTab.Id, _currentNotepadTab.Content);
         }
 
@@ -292,11 +285,10 @@ namespace Todo
             {
                 _currentNotepadTab = tab;
                 NotepadEditor.DataContext = tab;
-                NotepadPreview.DataContext = tab;
                 _isPreviewMode = true;
-                NotepadPreviewContainer.Visibility = Visibility.Visible;
-                NotepadEditor.Visibility = Visibility.Collapsed;
-                NotepadPreviewToggleIcon.Glyph = "\uE70F";
+                NotepadEditor.IsReadOnly = true;
+                NotepadEditor.AcceptsReturn = false;
+                NotepadPreviewToggleIcon.Glyph = "";
                 NotepadPreviewToggleText.Text = "编辑";
             }
             _isNotepadTabSwitching = false;
@@ -308,7 +300,6 @@ namespace Todo
             if (tab != null)
             {
                 var closingItem = GetTabViewItemFromCloseArgs(args, tab);
-                // 先从前台移除，5秒倒计时后再从 DB 删除
                 if (closingItem != null)
                     NotepadTabView.TabItems.Remove(closingItem);
                 _notepadTabs.Remove(tab);
@@ -358,7 +349,6 @@ namespace Todo
             if (_closedNotepadTab == null) return;
             _closeUndoTimer?.Stop();
 
-            // 恢复标签
             _notepadTabs.Add(_closedNotepadTab);
             NotepadTabView.TabItems.Add(CreateTabViewItem(_closedNotepadTab));
             NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
@@ -395,9 +385,9 @@ namespace Todo
         private void SwitchToEditMode()
         {
             _isPreviewMode = false;
-            NotepadPreviewContainer.Visibility = Visibility.Collapsed;
-            NotepadEditor.Visibility = Visibility.Visible;
-            NotepadPreviewToggleIcon.Glyph = "\uE890";
+            NotepadEditor.IsReadOnly = false;
+            NotepadEditor.AcceptsReturn = true;
+            NotepadPreviewToggleIcon.Glyph = "";
             NotepadPreviewToggleText.Text = "预览";
             NotepadEditor.Focus(FocusState.Programmatic);
             NotepadEditor.SelectionStart = NotepadEditor.Text.Length;
@@ -410,9 +400,9 @@ namespace Todo
                 SaveCurrentNotepadTabContentToDatabase();
             }
             _isPreviewMode = true;
-            NotepadEditor.Visibility = Visibility.Collapsed;
-            NotepadPreviewContainer.Visibility = Visibility.Visible;
-            NotepadPreviewToggleIcon.Glyph = "\uE70F";
+            NotepadEditor.IsReadOnly = true;
+            NotepadEditor.AcceptsReturn = false;
+            NotepadPreviewToggleIcon.Glyph = "";
             NotepadPreviewToggleText.Text = "编辑";
             NotepadPreviewToggleButton.Focus(FocusState.Programmatic);
         }
@@ -422,16 +412,17 @@ namespace Todo
             if (_isPreviewMode) SwitchToEditMode(); else SwitchToPreviewMode();
         }
 
-        private void NotepadPreview_KeyDown(object sender, KeyRoutedEventArgs e)
+        private void NotepadEditor_KeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (e.Key == Windows.System.VirtualKey.Enter && _isPreviewMode)
+            if (_isPreviewMode)
             {
-                SwitchToEditMode();
-                e.Handled = true;
-            }
-            else if (_isPreviewMode)
-            {
-                if (e.Key == Windows.System.VirtualKey.Q)
+                // Preview mode: Enter to edit, Q/E to switch tabs
+                if (e.Key == Windows.System.VirtualKey.Enter)
+                {
+                    SwitchToEditMode();
+                    e.Handled = true;
+                }
+                else if (e.Key == Windows.System.VirtualKey.Q)
                 {
                     SwitchToPrevNotepadTab();
                     e.Handled = true;
@@ -442,25 +433,19 @@ namespace Todo
                     e.Handled = true;
                 }
             }
-        }
-
-        private void NotepadEditor_LostFocus(object sender, RoutedEventArgs e)
-        {
-            // 不再自动退出编辑模式
-        }
-
-        private void NotepadEditor_KeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            else
             {
-                SwitchToPreviewMode();
-                e.Handled = true;
-            }
-            else if (e.Key == Windows.System.VirtualKey.S && IsCtrlPressed())
-            {
-                SaveCurrentNotepadTab();
-                NotepadPreview.Text = _currentNotepadTab?.Content ?? "";
-                e.Handled = true;
+                // Edit mode: Escape to preview, Ctrl+S to save
+                if (e.Key == Windows.System.VirtualKey.Escape)
+                {
+                    SwitchToPreviewMode();
+                    e.Handled = true;
+                }
+                else if (e.Key == Windows.System.VirtualKey.S && IsCtrlPressed())
+                {
+                    SaveCurrentNotepadTab();
+                    e.Handled = true;
+                }
             }
         }
 
@@ -478,22 +463,6 @@ namespace Todo
             if (NotepadTabView.TabItems.Count <= 1) return;
             int idx = NotepadTabView.SelectedIndex;
             NotepadTabView.SelectedIndex = idx >= NotepadTabView.TabItems.Count - 1 ? 0 : idx + 1;
-        }
-
-        private void NotepadContent_KeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            // Only handle Q/E in preview mode (not editing)
-            if (!_isPreviewMode) return;
-            if (e.Key == Windows.System.VirtualKey.Q)
-            {
-                SwitchToPrevNotepadTab();
-                e.Handled = true;
-            }
-            else if (e.Key == Windows.System.VirtualKey.E)
-            {
-                SwitchToNextNotepadTab();
-                e.Handled = true;
-            }
         }
 
         private async void NotepadOpen_Click(object sender, RoutedEventArgs e)
@@ -536,8 +505,6 @@ namespace Todo
                     await NotepadSaveAsAsync(updateCurrentTab: false);
                 }
             }
-
-            NotepadPreview.Text = _currentNotepadTab.Content;
         }
 
         private async void NotepadSaveAs_Click(object sender, RoutedEventArgs e)

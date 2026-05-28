@@ -63,6 +63,9 @@ namespace Todo
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
         [DllImport("dwmapi.dll", PreserveSig = true)]
         private static extern int DwmSetWindowAttribute(IntPtr hWnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
@@ -116,6 +119,7 @@ namespace Todo
         private const int SW_SHOW = 5;
         private const int SW_SHOWNOACTIVATE = 4;
         private const int SW_RESTORE = 9;
+        private const int SW_HIDE = 0;
 
         private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
         private const int DWMWCP_ROUND = 2;
@@ -512,16 +516,27 @@ namespace Todo
                 {
                     case HOTKEY_ID_1: TogglePinnedWindow(0); break;
                     case HOTKEY_ID_2: TogglePinnedWindow(1); break;
-                    case HOTKEY_ID_GRAVE: ShowMainWindow(); break;
+                    case HOTKEY_ID_GRAVE: ToggleMainWindow(); break;
                 }
                 return (IntPtr)0;
             }
             return DefSubclassProc(hWnd, uMsg, wParam, lParam);
         }
 
-        private static void ShowMainWindow()
+        private static void ToggleMainWindow()
         {
             if (_mainWindowHwnd == IntPtr.Zero) return;
+
+            var fg = GetForegroundWindow();
+            // If main window is visible and has focus, hide it; otherwise show
+            if (fg == _mainWindowHwnd && IsWindowVisible(_mainWindowHwnd) && !IsIconic(_mainWindowHwnd))
+            {
+                ShowWindow(_mainWindowHwnd, SW_HIDE);
+                AppWindow.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(_mainWindowHwnd))?.Hide();
+                LogPinnedGuard("ToggleMainWindow: hide");
+                return;
+            }
+
             if (IsIconic(_mainWindowHwnd))
                 ShowWindow(_mainWindowHwnd, SW_RESTORE);
             if (!IsWindowVisible(_mainWindowHwnd))
@@ -542,7 +557,7 @@ namespace Todo
                     appWindow.Show(true);
                 appWindow.MoveInZOrderAtTop();
             }
-            LogPinnedGuard("ShowMainWindow");
+            LogPinnedGuard("ToggleMainWindow: show");
         }
 
         private static IntPtr? GetPinnedWindowByIndex(int index)

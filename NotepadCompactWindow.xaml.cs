@@ -213,10 +213,9 @@ namespace Todo
             {
                 _currentTab = tab;
                 Editor.DataContext = tab;
-                Preview.DataContext = tab;
                 _isPreviewMode = true;
-                PreviewContainer.Visibility = Visibility.Visible;
-                Editor.Visibility = Visibility.Collapsed;
+                Editor.IsReadOnly = true;
+                Editor.AcceptsReturn = false;
                 PreviewToggleIcon.Glyph = "";
                 PreviewToggleText.Text = "编辑";
             }
@@ -307,8 +306,8 @@ namespace Todo
         private void SwitchToEditMode()
         {
             _isPreviewMode = false;
-            PreviewContainer.Visibility = Visibility.Collapsed;
-            Editor.Visibility = Visibility.Visible;
+            Editor.IsReadOnly = false;
+            Editor.AcceptsReturn = true;
             Editor.Focus(FocusState.Programmatic);
             Editor.SelectionStart = Editor.Text.Length;
             PreviewToggleIcon.Glyph = "";
@@ -320,8 +319,8 @@ namespace Todo
             if (_currentTab != null && !_isPreviewMode)
                 SaveCurrentTab();
             _isPreviewMode = true;
-            Editor.Visibility = Visibility.Collapsed;
-            PreviewContainer.Visibility = Visibility.Visible;
+            Editor.IsReadOnly = true;
+            Editor.AcceptsReturn = false;
             PreviewToggleIcon.Glyph = "";
             PreviewToggleText.Text = "编辑";
         }
@@ -331,16 +330,17 @@ namespace Todo
             if (_isPreviewMode) SwitchToEditMode(); else SwitchToPreviewMode();
         }
 
-        private void Preview_KeyDown(object sender, KeyRoutedEventArgs e)
+        private void Editor_KeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (e.Key == Windows.System.VirtualKey.Enter && _isPreviewMode)
+            if (_isPreviewMode)
             {
-                SwitchToEditMode();
-                e.Handled = true;
-            }
-            else if (_isPreviewMode)
-            {
-                if (e.Key == Windows.System.VirtualKey.Q)
+                // Preview mode: Enter to edit, Q/E to switch tabs
+                if (e.Key == Windows.System.VirtualKey.Enter)
+                {
+                    SwitchToEditMode();
+                    e.Handled = true;
+                }
+                else if (e.Key == Windows.System.VirtualKey.Q)
                 {
                     SwitchToPrevTab();
                     e.Handled = true;
@@ -351,20 +351,19 @@ namespace Todo
                     e.Handled = true;
                 }
             }
-        }
-
-        private void Editor_KeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            else
             {
-                SwitchToPreviewMode();
-                e.Handled = true;
-            }
-            else if (e.Key == Windows.System.VirtualKey.S && IsCtrlPressed())
-            {
-                SaveCurrentTab();
-                Preview.Text = _currentTab?.Content ?? "";
-                e.Handled = true;
+                // Edit mode: Escape to preview, Ctrl+S to save
+                if (e.Key == Windows.System.VirtualKey.Escape)
+                {
+                    SwitchToPreviewMode();
+                    e.Handled = true;
+                }
+                else if (e.Key == Windows.System.VirtualKey.S && IsCtrlPressed())
+                {
+                    SaveCurrentTab();
+                    e.Handled = true;
+                }
             }
         }
 
@@ -382,21 +381,6 @@ namespace Todo
             if (NotepadTabView.TabItems.Count <= 1) return;
             int idx = NotepadTabView.SelectedIndex;
             NotepadTabView.SelectedIndex = idx >= NotepadTabView.TabItems.Count - 1 ? 0 : idx + 1;
-        }
-
-        private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            if (!_isPreviewMode) return;
-            if (e.Key == Windows.System.VirtualKey.Q)
-            {
-                SwitchToPrevTab();
-                e.Handled = true;
-            }
-            else if (e.Key == Windows.System.VirtualKey.E)
-            {
-                SwitchToNextTab();
-                e.Handled = true;
-            }
         }
 
         private async void OpenButton_Click(object sender, RoutedEventArgs e)
@@ -435,7 +419,6 @@ namespace Todo
                 }
                 catch { await SaveAsAsync(); }
             }
-            Preview.Text = _currentTab.Content;
         }
 
         private async void SaveAsButton_Click(object sender, RoutedEventArgs e)

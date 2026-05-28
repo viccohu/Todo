@@ -7,7 +7,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid x:Name="RootGrid" Background="#1e1e1e" KeyDown="RootGrid_KeyDown">
+    <Grid x:Name="RootGrid" Background="#1e1e1e">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -69,16 +69,14 @@
                     </Button>
                 </Grid>
 
-                <!-- 内容区 -->
-                <Grid Grid.Row="1">
+                <!-- 内容区（IsReadOnly 切换预览/编辑） -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <TextBox x:Name="Editor"
-                             AcceptsReturn="True"
                              TextWrapping="Wrap"
                              Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              MinHeight="200"
                              VerticalAlignment="Stretch"
                              HorizontalAlignment="Stretch"
-                             Visibility="Collapsed"
                              Foreground="#e0e0e0"
                              Background="#1e1e1e"
                              BorderThickness="0"
@@ -95,35 +93,9 @@
                             <SolidColorBrush x:Key="TextControlForeground" Color="#e0e0e0"/>
                             <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#e0e0e0"/>
                             <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#555"/>
-                            <x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
                         </TextBox.Resources>
                     </TextBox>
-
-                    <ScrollViewer x:Name="PreviewContainer" VerticalScrollBarVisibility="Auto">
-                        <TextBox x:Name="Preview"
-                                 IsReadOnly="True"
-                                 Text="{Binding Content, Mode=OneWay}"
-                                 Padding="12,8,12,8"
-                                 TextWrapping="Wrap"
-                                 HorizontalAlignment="Stretch"
-                                 VerticalAlignment="Stretch"
-                                 Background="#1e1e1e"
-                                 Foreground="#e0e0e0"
-                                 BorderThickness="0"
-                                 KeyDown="Preview_KeyDown">
-                            <TextBox.Resources>
-                                <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
-                                <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
-                                <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
-                                <SolidColorBrush x:Key="TextControlBackground" Color="#1e1e1e"/>
-                                <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#1e1e1e"/>
-                                <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#1e1e1e"/>
-                                <SolidColorBrush x:Key="TextControlForeground" Color="#e0e0e0"/>
-                                <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#e0e0e0"/>
-                            </TextBox.Resources>
-                        </TextBox>
-                    </ScrollViewer>
-                </Grid>
+                </ScrollViewer>
             </Grid>
         </ScrollViewer>
 

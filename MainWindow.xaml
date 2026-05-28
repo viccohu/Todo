@@ -155,7 +155,7 @@
                         </StackPanel>
 
                         <!-- 记事本页面 -->
-                        <Grid x:Name="NotepadContent" Grid.Row="1" Visibility="Collapsed" Padding="4,0,2,0" KeyDown="NotepadContent_KeyDown">
+                        <Grid x:Name="NotepadContent" Grid.Row="1" Visibility="Collapsed" Padding="4,0,2,0">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
@@ -219,51 +219,22 @@
                                 </StackPanel>
                             </Grid>
 
-                            <!-- 编辑器区 -->
-                            <TextBox x:Name="NotepadEditor"
-                                     Grid.Row="2"
-                                     AcceptsReturn="True"
-                                     TextWrapping="Wrap"
-                                     Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     VerticalAlignment="Stretch"
-                                     HorizontalAlignment="Stretch"
-                                     Visibility="Collapsed"
-                                     Foreground="#e0e0e0"
-                                     Background="#161616"
-                                     BorderThickness="0"
-                                     Margin="0,0,0,0"
-                                     Padding="24,8,24,8"
-                                     KeyDown="NotepadEditor_KeyDown"
-                                     TextChanged="NotepadEditor_TextChanged"
-                                     LostFocus="NotepadEditor_LostFocus">
-                                <TextBox.Resources>
-                                    <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#555"/>
-                                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
-                                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
-                                    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
-                                    <SolidColorBrush x:Key="TextControlBackground" Color="#161616"/>
-                                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#161616"/>
-                                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#161616"/>
-                                    <SolidColorBrush x:Key="TextControlForeground" Color="#e0e0e0"/>
-                                    <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#e0e0e0"/>
-                                </TextBox.Resources>
-                            </TextBox>
-
-                            <!-- 只读预览区 -->
-                            <ScrollViewer x:Name="NotepadPreviewContainer" Grid.Row="2"
-                                          VerticalScrollBarVisibility="Auto">
-                                <TextBox x:Name="NotepadPreview"
-                                         IsReadOnly="True"
-                                         Text="{Binding Content, Mode=OneWay}"
-                                         Padding="24,8,24,8"
+                            <!-- 编辑器（IsReadOnly 切换预览/编辑） -->
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                <TextBox x:Name="NotepadEditor"
                                          TextWrapping="Wrap"
-                                         HorizontalAlignment="Stretch"
+                                         Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          VerticalAlignment="Stretch"
-                                         Background="#161616"
+                                         HorizontalAlignment="Stretch"
                                          Foreground="#e0e0e0"
+                                         Background="#161616"
                                          BorderThickness="0"
-                                         KeyDown="NotepadPreview_KeyDown">
+                                         Margin="0,0,0,0"
+                                         Padding="24,8,24,8"
+                                         KeyDown="NotepadEditor_KeyDown"
+                                         TextChanged="NotepadEditor_TextChanged">
                                     <TextBox.Resources>
+                                        <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#555"/>
                                         <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
                                         <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
                                         <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
@@ -764,7 +735,7 @@
                                                  AcceptsReturn="True"
                                                  TextWrapping="Wrap"
                                                  Height="100"
-                                                 Padding="12,0,12,12"
+                                                 Padding="12,12,12,12"
                                                  TextChanged="DetailDescription_TextChanged"
                                                  KeyDown="DetailDescription_KeyDown"
                                                  RightTapped="DetailDescription_RightTapped">

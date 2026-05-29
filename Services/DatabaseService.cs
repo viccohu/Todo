@@ -14,8 +14,20 @@ namespace Todo.Services
 
         public DatabaseService()
         {
-            var localFolder = ApplicationData.Current.LocalFolder.Path;
-            _dbPath = Path.Combine(localFolder, "todo.db");
+            // WinUI 3 recommended: ApplicationData.Current.LocalFolder
+            _dbPath = Path.Combine(
+                ApplicationData.Current.LocalFolder.Path, "todo.db");
+
+            // Migrate from old fixed path if it exists and new path doesn't
+            var legacyDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Todo");
+            var legacyDb = Path.Combine(legacyDir, "todo.db");
+            if (!File.Exists(_dbPath) && File.Exists(legacyDb))
+            {
+                File.Copy(legacyDb, _dbPath);
+            }
+
             InitializeDatabase();
         }
 
@@ -1257,5 +1269,112 @@ namespace Todo.Services
                 command.ExecuteNonQuery();
             }
         }
+        /// <summary>Export the database to a chosen path.</summary>
+        public void ExportDatabase(string targetPath)
+        {
+            // Flush WAL to main database file
+            using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+                cmd.ExecuteNonQuery();
+            }
+            SqliteConnection.ClearAllPools();
+            File.Copy(_dbPath, targetPath, overwrite: true);
+        }
+
+        /// <summary>
+        /// Import a database file. If overwrite, replaces the current database.
+        /// If append, copies new tasks/notes/tabs from the source.
+        /// The caller must reload data from the database after calling this.
+        /// </summary>
+        public void ImportDatabase(string sourcePath, bool overwrite)
+        {
+            SqliteConnection.ClearAllPools();
+
+            if (overwrite)
+            {
+                File.Copy(sourcePath, _dbPath, overwrite: true);
+                return;
+            }
+
+            // Append: attach source and copy missing/new records
+            using var conn = new SqliteConnection($"Data Source={_dbPath}");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"ATTACH DATABASE '{sourcePath.Replace("'", "''")}' AS src";
+            cmd.ExecuteNonQuery();
+
+            // Debug: check source row counts
+            foreach (var tbl in new[] { "Tasks", "SubTasks", "NotepadTabs" })
+            {
+                try
+                {
+                    cmd.CommandText = $"SELECT COUNT(*) FROM src.{tbl}";
+                    var count = (long)cmd.ExecuteScalar()!;
+                    System.Diagnostics.Debug.WriteLine($"[ImportDB] Source {tbl}: {count} rows");
+                }
+                catch { }
+            }
+
+            // Copy tasks (skip same Title)
+            try
+            {
+                cmd.CommandText = @"
+                    INSERT INTO Tasks (Title, Description, DueDate, IsChecked, IsImportant, CreatedAt)
+                    SELECT s.Title, s.Description, s.DueDate, s.IsChecked, s.IsImportant, s.CreatedAt
+                    FROM src.Tasks s
+                    WHERE NOT EXISTS (SELECT 1 FROM Tasks t WHERE t.Title = s.Title)";
+                int n = cmd.ExecuteNonQuery();
+                System.Diagnostics.Debug.WriteLine($"[ImportDB] Tasks imported: {n}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ImportDB] Tasks error: {ex.Message}");
+            }
+
+            // Copy subtasks for tasks that were imported (matched by Title)
+            try
+            {
+                cmd.CommandText = @"
+                    INSERT INTO SubTasks (ParentTaskId, Title, IsChecked, CreatedAt)
+                    SELECT t2.Id, s.Title, s.IsChecked, s.CreatedAt
+                    FROM src.SubTasks s
+                    JOIN src.Tasks t1 ON s.ParentTaskId = t1.Id
+                    JOIN Tasks t2 ON t1.Title = t2.Title
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM SubTasks x
+                        WHERE x.ParentTaskId = t2.Id AND x.Title = s.Title
+                    )";
+                int n = cmd.ExecuteNonQuery();
+                System.Diagnostics.Debug.WriteLine($"[ImportDB] SubTasks imported: {n}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ImportDB] SubTasks error: {ex.Message}");
+            }
+
+            // Copy notepad tabs (skip same Title)
+            try
+            {
+                cmd.CommandText = @"
+                    INSERT INTO NotepadTabs (Title, Content, FilePath, IsModified, ""Order"", CreatedAt, UpdatedAt)
+                    SELECT s.Title, s.Content, s.FilePath, s.IsModified, s.""Order"", s.CreatedAt, s.UpdatedAt
+                    FROM src.NotepadTabs s
+                    WHERE NOT EXISTS (SELECT 1 FROM NotepadTabs t WHERE t.Title = s.Title)";
+                int n = cmd.ExecuteNonQuery();
+                System.Diagnostics.Debug.WriteLine($"[ImportDB] NotepadTabs imported: {n}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ImportDB] NotepadTabs error: {ex.Message}");
+            }
+
+            cmd.CommandText = "DETACH DATABASE src";
+            cmd.ExecuteNonQuery();
+        }
+
+        public string DatabasePath => _dbPath;
     }
 }

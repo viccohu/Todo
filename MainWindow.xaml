@@ -696,7 +696,7 @@
                                                     Padding="0,4">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                                     <ImageIcon Source="ms-appx:///Assets/icons/white/任务列表.svg" Width="22" Height="18"/>
-                                                    <TextBlock Text="添加子任务" Foreground="#0078d4" FontSize="14"/>
+                                                    <TextBlock Text="添加子任务" Foreground="#990078d4" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>
                                             <TextBox x:Name="AddSubTaskTextBox" 

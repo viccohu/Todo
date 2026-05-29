@@ -10,7 +10,8 @@
       "WebFetch(domain:github.com)",
       "Bash(find \"C:/Users/SSSS/.nuget/packages/communitytoolkit.labs.winui.controls.markdowntextblock/0.1.251217-build.2433/\" -type f 2>/dev/null | head -30)",
       "Bash(dotnet build *)",
-      "Bash(git -C \"D:\\\\Project\\\\Todo\" log --oneline -10)"
+      "Bash(git -C \"D:\\\\Project\\\\Todo\" log --oneline -10)",
+      "Bash(powershell -NoProfile -Command 'Get-ChildItem $env:LOCALAPPDATA -Recurse -Filter todo.db -Depth 8 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host \\('\\\\''{0,6} KB  {1}'\\\\'' -f [int]\\($_.Length/1KB\\), $_.FullName\\) }')"
     ]
   }
 }

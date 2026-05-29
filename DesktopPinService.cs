@@ -192,9 +192,12 @@ namespace Todo
         private static volatile int _initInProgress;
         private static IntPtr _liftedWindow = IntPtr.Zero;  // Hotkey-lifted window awaiting auto-return
 
+        private static bool _verboseLogging = false;
+
         private static void Log(string m)
         {
-            Debug.WriteLine($"[DesktopPin] {m}");
+            if (_verboseLogging)
+                Debug.WriteLine($"[DesktopPin] {m}");
         }
 
         #endregion

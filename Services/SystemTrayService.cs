@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using H.NotifyIcon;
 using H.NotifyIcon.Core;
@@ -8,6 +9,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Win32;
 using Windows.ApplicationModel;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using WinRT.Interop;
 
 namespace Todo.Services;
@@ -16,6 +19,7 @@ public class SystemTrayService : IDisposable
 {
     private readonly TaskbarIcon _taskbarIcon;
     private readonly Window _window;
+    private readonly DatabaseService _db;
     private System.Drawing.Icon? _icon;
     private bool _isDisposed;
 
@@ -23,11 +27,15 @@ public class SystemTrayService : IDisposable
     private const string StartupValueName = "Todo";
     private ToggleMenuFlyoutItem? _autoStartItem;
 
+    /// <summary>Fired after importing a database; the app should reload all data.</summary>
+    public event Action? DatabaseImported;
+
     public event Action? ExitRequested;
 
-    public SystemTrayService(Window window, Panel parentPanel)
+    public SystemTrayService(Window window, Panel parentPanel, DatabaseService db)
     {
         _window = window;
+        _db = db;
 
         _taskbarIcon = new TaskbarIcon
         {
@@ -40,15 +48,25 @@ public class SystemTrayService : IDisposable
 
         LoadTrayIcon();
 
-        // Build context menu
         var menu = new MenuFlyout();
+
         var showItem = new MenuFlyoutItem { Text = "显示" };
         showItem.Click += (_, _) => ShowFromTray();
         menu.Items.Add(showItem);
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        // Auto-start toggle
+        // Import / Export
+        var importItem = new MenuFlyoutItem { Text = "导入数据库" };
+        importItem.Click += async (_, _) => await ImportDatabaseAsync();
+        menu.Items.Add(importItem);
+
+        var exportItem = new MenuFlyoutItem { Text = "导出数据库" };
+        exportItem.Click += async (_, _) => await ExportDatabaseAsync();
+        menu.Items.Add(exportItem);
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+
         _autoStartItem = new ToggleMenuFlyoutItem
         {
             Text = "开机自启动",
@@ -65,6 +83,9 @@ public class SystemTrayService : IDisposable
 
         _taskbarIcon.ContextFlyout = menu;
         parentPanel.Children.Add(_taskbarIcon);
+
+        // Repair auto-start path on every launch (handles app relocation)
+        RepairAutoStartPath();
     }
 
     private void LoadTrayIcon()
@@ -78,10 +99,58 @@ public class SystemTrayService : IDisposable
                 _taskbarIcon.Icon = _icon;
             }
         }
-        catch
+        catch { }
+    }
+
+    private async Task ExportDatabaseAsync()
+    {
+        var savePicker = new FileSavePicker();
+        var hwnd = WindowNative.GetWindowHandle(_window);
+        WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+        savePicker.FileTypeChoices.Add("SQLite Database", new[] { ".db" });
+        savePicker.SuggestedFileName = "todo-backup.db";
+
+        var file = await savePicker.PickSaveFileAsync();
+        if (file != null)
         {
-            // 使用默认图标
+            _db.ExportDatabase(file.Path);
         }
+    }
+
+    private async Task ImportDatabaseAsync()
+    {
+        var openPicker = new FileOpenPicker();
+        var hwnd = WindowNative.GetWindowHandle(_window);
+        WinRT.Interop.InitializeWithWindow.Initialize(openPicker, hwnd);
+        openPicker.FileTypeFilter.Add(".db");
+
+        var file = await openPicker.PickSingleFileAsync();
+        if (file == null) return;
+
+        bool hasExistingData = File.Exists(_db.DatabasePath) && new FileInfo(_db.DatabasePath).Length > 0;
+
+        if (hasExistingData)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "导入数据库",
+                Content = "已有数据存在，请选择导入方式：\n\n• 覆盖：替换当前所有数据\n• 追加：保留现有数据，只导入新的任务和笔记",
+                PrimaryButtonText = "覆盖",
+                SecondaryButtonText = "追加",
+                CloseButtonText = "取消",
+                XamlRoot = _window.Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.None) return; // Cancel
+            _db.ImportDatabase(file.Path, overwrite: result == ContentDialogResult.Primary);
+        }
+        else
+        {
+            _db.ImportDatabase(file.Path, overwrite: true);
+        }
+
+        DatabaseImported?.Invoke();
     }
 
     public void HideToTray()
@@ -105,9 +174,21 @@ public class SystemTrayService : IDisposable
         _taskbarIcon.Dispose();
     }
 
+    private static void RepairAutoStartPath()
+    {
+        if (IsPackaged) return;
+        try
+        {
+            if (!IsAutoStartEnabled()) return;
+            using var key = Registry.CurrentUser.OpenSubKey(StartupKeyPath, writable: true);
+            if (key != null)
+                key.SetValue(StartupValueName, GetExecutablePath());
+        }
+        catch { }
+    }
+
     private static bool IsAutoStartEnabled()
     {
-        // MSIX packaged: use StartupTask API
         if (IsPackaged)
         {
             try
@@ -118,11 +199,10 @@ public class SystemTrayService : IDisposable
             }
             catch { return false; }
         }
-        // Unpackaged: registry
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(StartupKeyPath);
-            return key?.GetValue(StartupValueName) is string val && val == GetExecutablePath();
+            return key?.GetValue(StartupValueName) != null;
         }
         catch { return false; }
     }
@@ -132,10 +212,8 @@ public class SystemTrayService : IDisposable
         try
         {
             bool enabled = !IsAutoStartEnabled();
-
             if (IsPackaged)
             {
-                // MSIX: use StartupTask API (requires <Extension Category="windows.startupTask"> in manifest)
                 var task = await StartupTask.GetAsync("TodoStartup");
                 if (enabled)
                 {
@@ -143,14 +221,10 @@ public class SystemTrayService : IDisposable
                     enabled = result == StartupTaskState.Enabled
                            || result == StartupTaskState.EnabledByPolicy;
                 }
-                else
-                {
-                    task.Disable();
-                }
+                else task.Disable();
             }
             else
             {
-                // Unpackaged: registry
                 using var key = Registry.CurrentUser.OpenSubKey(StartupKeyPath, writable: true);
                 if (key == null)
                 {
@@ -174,10 +248,8 @@ public class SystemTrayService : IDisposable
     private static bool IsPackaged =>
         Windows.ApplicationModel.Package.Current != null;
 
-    private static string GetExecutablePath()
-    {
-        return $"\"{Environment.ProcessPath}\"";
-    }
+    private static string GetExecutablePath() =>
+        $"\"{Environment.ProcessPath}\"";
 
     #region P/Invoke
 
@@ -197,13 +269,9 @@ public class SystemTrayService : IDisposable
     private class RelayCommand : ICommand
     {
         private readonly Action _execute;
-
         public RelayCommand(Action execute) => _execute = execute;
-
         public event EventHandler? CanExecuteChanged;
-
         public bool CanExecute(object? parameter) => true;
-
         public void Execute(object? parameter) => _execute();
     }
 

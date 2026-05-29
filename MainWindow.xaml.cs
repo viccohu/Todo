@@ -108,12 +108,32 @@ namespace Todo
                 }
             };
 
-            _trayService = new SystemTrayService(this, RootGrid);
+            _trayService = new SystemTrayService(this, RootGrid, _dbService);
             _trayService.ExitRequested += () =>
             {
                 _isExiting = true;
                 _trayService.Dispose();
                 Close();
+            };
+            _trayService.DatabaseImported += () =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_currentNavTag == "Notepad")
+                    {
+                        _notepadTabs.Clear();
+                        var tabs = _dbService.GetNotepadTabs();
+                        foreach (var t in tabs) _notepadTabs.Add(t);
+                        NotepadTabView.TabItems.Clear();
+                        foreach (var tab in _notepadTabs)
+                            NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
+                        NotepadTabView.SelectedIndex = 0;
+                    }
+                    else
+                    {
+                        LoadTasksForCurrentNav();
+                    }
+                });
             };
 
             if (_appWindow != null)

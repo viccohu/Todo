@@ -47,6 +47,9 @@
       </uap:VisualElements>
       
       <Extensions>
+        <desktop:Extension Category="windows.startupTask">
+          <desktop:StartupTask TaskId="TodoStartup" Enabled="false" DisplayName="Todo" />
+        </desktop:Extension>
         <desktop:Extension Category="windows.toastNotificationActivation">
           <desktop:ToastNotificationActivation ToastActivatorCLSID="C173E6AD-F0C3-4E8D-9A5B-1234567890AB" />
         </desktop:Extension>

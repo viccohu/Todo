@@ -81,7 +81,10 @@ namespace Todo
                                 if (item is TabViewItem tvi && tvi.Tag == tab)
                                     exists = true;
                             if (!exists)
+                            {
                                 NotepadTabView.TabItems.Add(CreateTabItem(tab));
+                                LogNotepadTab(tab, "Compact-CollectionChanged");
+                            }
                         }
                     }
                     else if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove && args.OldItems != null)
@@ -149,6 +152,7 @@ namespace Todo
             foreach (var tab in _tabs)
             {
                 NotepadTabView.TabItems.Add(CreateTabItem(tab));
+                LogNotepadTab(tab, "Compact-LoadTabs");
             }
             if (_tabs.Count == 0)
                 AddTab("未命名");
@@ -198,6 +202,21 @@ namespace Todo
             _tabs.Add(tab);
             NotepadTabView.TabItems.Add(CreateTabItem(tab));
             NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
+            LogNotepadTab(tab, "Compact-AddTab", title);
+        }
+
+        private void LogNotepadTab(NotepadTab tab, string source, string? detail = null)
+        {
+            var stack = new System.Diagnostics.StackTrace(2, fNeedFileInfo: true);
+            var caller = stack.GetFrame(0);
+            var method = caller?.GetMethod()?.Name ?? "?";
+            var file = caller?.GetFileName() ?? "?";
+            var line = caller?.GetFileLineNumber() ?? 0;
+            var dt = DateTime.Now.ToString("HH:mm:ss.fff");
+            var info = detail != null ? $" ({detail})" : "";
+            System.Diagnostics.Debug.WriteLine(
+                $"[NotepadTabs] {dt} NEW Tab#{tab.Id} Title='{tab.Title}' source={source}{info} " +
+                $"caller={method} at {System.IO.Path.GetFileName(file)}:{line}");
         }
 
         private void TabView_AddTabClick(TabView sender, object args)
@@ -292,6 +311,7 @@ namespace Todo
             _tabs.Add(_closedTab);
             NotepadTabView.TabItems.Add(CreateTabItem(_closedTab));
             NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
+            LogNotepadTab(_closedTab, "Compact-UndoClose");
 
             _closedTab = null;
             UndoBar.Visibility = Visibility.Collapsed;
@@ -404,6 +424,7 @@ namespace Todo
                 _tabs.Add(tab);
                 NotepadTabView.TabItems.Add(CreateTabItem(tab));
                 NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
+                LogNotepadTab(tab, "Compact-FileOpen", file.Name);
             }
         }
 

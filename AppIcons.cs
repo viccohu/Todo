@@ -1,7 +1,7 @@
 using Microsoft.UI.Xaml.Controls;
 using System;
 
-namespace Todo
+namespace Memo
 {
     /// <summary>
     /// 图标管理 — SVG + ImageIcon，利用 SvgImageSource 原生缩放

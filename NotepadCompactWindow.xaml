@@ -1,13 +1,13 @@
 <Window
-    x:Class="Todo.NotepadCompactWindow"
+    x:Class="Memo.NotepadCompactWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:Todo"
+    xmlns:local="using:Memo"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid x:Name="RootGrid" Background="#1e1e1e">
+    <Grid x:Name="RootGrid" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -24,7 +24,7 @@
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
                 <ImageIcon Source="ms-appx:///Assets/icons/white/记事本.svg" Width="18" Height="18"/>
-                <TextBlock Text="NOTEPAD" FontSize="14" Foreground="#ccc" VerticalAlignment="Center"/>
+                <TextBlock Text="NOTEPAD" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
             </StackPanel>
             <Button Grid.Column="1"
                     Click="RestoreButton_Click"
@@ -33,7 +33,7 @@
                     BorderThickness="0"
                     Padding="4"
                     ToolTipService.ToolTip="恢复">
-                <FontIcon Glyph="&#xE196;" FontSize="14" Foreground="#888"/>
+                <FontIcon Glyph="&#xE196;" FontSize="14" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
             </Button>
         </Grid>
 
@@ -43,7 +43,7 @@
                  AddTabButtonClick="TabView_AddTabClick"
                  TabCloseRequested="TabView_TabCloseRequested"
                  SelectionChanged="TabView_SelectionChanged"
-                 Background="#1e1e1e"
+                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                  IsAddTabButtonVisible="True">
         </TabView>
 
@@ -56,15 +56,15 @@
                 </Grid.RowDefinitions>
 
                 <!-- 工具栏 -->
-                <Grid Grid.Row="0" Background="#222" Padding="6,4" Height="32">
+                <Grid Grid.Row="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="6,4" Height="32">
                     <Button x:Name="PreviewToggleButton"
                             Click="PreviewToggle_Click"
                             HorizontalAlignment="Right"
                             Background="Transparent" BorderThickness="0" Padding="4,2"
                             ToolTipService.ToolTip="切换预览/编辑">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon x:Name="PreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="#ccc"/>
-                            <TextBlock x:Name="PreviewToggleText" Text="编辑" FontSize="12" Foreground="#ccc" VerticalAlignment="Center"/>
+                            <FontIcon x:Name="PreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Name="PreviewToggleText" Text="编辑" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                 </Grid>
@@ -77,8 +77,8 @@
                              MinHeight="200"
                              VerticalAlignment="Stretch"
                              HorizontalAlignment="Stretch"
-                             Foreground="#e0e0e0"
-                             Background="#1e1e1e"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                              BorderThickness="0"
                              Padding="12,8,12,8"
                              KeyDown="Editor_KeyDown"
@@ -87,12 +87,12 @@
                             <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
                             <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
                             <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
-                            <SolidColorBrush x:Key="TextControlBackground" Color="#1e1e1e"/>
-                            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#1e1e1e"/>
-                            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#1e1e1e"/>
-                            <SolidColorBrush x:Key="TextControlForeground" Color="#e0e0e0"/>
-                            <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#e0e0e0"/>
-                            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#555"/>
+                            <SolidColorBrush x:Key="TextControlBackground" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
+                            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
+                            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
+                            <SolidColorBrush x:Key="TextControlForeground" Color="{ThemeResource TextFillColorPrimary}"/>
+                            <SolidColorBrush x:Key="TextControlForegroundFocused" Color="{ThemeResource TextFillColorPrimary}"/>
+                            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorTertiary}"/>
                         </TextBox.Resources>
                     </TextBox>
                 </ScrollViewer>
@@ -100,13 +100,13 @@
         </ScrollViewer>
 
         <!-- 误关闭恢复提示 -->
-        <Grid x:Name="UndoBar" Grid.Row="3" Height="36" Background="#1a3a5c" Visibility="Collapsed" Padding="8,0">
+        <Grid x:Name="UndoBar" Grid.Row="3" Height="36" Background="{ThemeResource SystemFillColorAttentionBackgroundBrush}" Visibility="Collapsed" Padding="8,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="UndoText" Grid.Column="0" Text="" FontSize="12" Foreground="#ccc" VerticalAlignment="Center" Margin="4,0,0,0"/>
-            <Button Grid.Column="1" Click="UndoClose_Click" Background="Transparent" BorderThickness="0" Padding="8,4" Foreground="#4da6ff" FontSize="12">
+            <TextBlock x:Name="UndoText" Grid.Column="0" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+            <Button Grid.Column="1" Click="UndoClose_Click" Background="Transparent" BorderThickness="0" Padding="8,4" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" FontSize="12">
                 恢复
             </Button>
         </Grid>
@@ -116,13 +116,13 @@
                 Grid.Row="4"
                 Click="ToggleExpand_Click"
                 HorizontalAlignment="Stretch"
-                Background="#262626"
+                Background="{ThemeResource ControlFillColorDefaultBrush}"
                 BorderThickness="1"
-                BorderBrush="#333"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 CornerRadius="0"
                 Padding="0,0">
             <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                <FontIcon x:Name="ToggleExpandIcon" Glyph="&#xE96E;" FontSize="12" Foreground="#888"/>
+                <FontIcon x:Name="ToggleExpandIcon" Glyph="&#xE96E;" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
             </StackPanel>
         </Button>
     </Grid>

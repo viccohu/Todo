@@ -15,19 +15,24 @@ using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
-using Todo.Services;
+using Memo.Services;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
 
-namespace Todo
+namespace Memo
 {
     /// <summary>
     /// Provides application-specific behavior to supplement the default Application class.
     /// </summary>
     public partial class App : Application
     {
-        private Window? _window;
+        private static Window? _window;
+
+        /// <summary>
+        /// Gets the main application window.
+        /// </summary>
+        public static Window? MainWindow => _window;
 
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
@@ -48,9 +53,21 @@ namespace Todo
             WindowHelper.InitializeDesktopPin();
 
             _window = new MainWindow();
+
             _window.Activate();
 
             ReminderService.Instance.Initialize();
+        }
+
+        /// <summary>
+        /// 设置应用主题（Light / Dark）
+        /// </summary>
+        public static void SetTheme(ElementTheme theme)
+        {
+            if (_window?.Content is FrameworkElement root)
+            {
+                root.RequestedTheme = theme;
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Todo.Models
+namespace Memo.Models
 {
     public class TaskList
     {

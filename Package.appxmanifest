@@ -18,7 +18,7 @@
   <mp:PhoneIdentity PhoneProductId="f148eb48-ad41-4f75-92ae-aad6e7b017c5" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>Todo</DisplayName>
+    <DisplayName>Memo</DisplayName>
     <PublisherDisplayName>SSSS</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -37,25 +37,25 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="Todo"
-        Description="Todo"
+        DisplayName="Memo"
+        Description="Memo"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"  Square71x71Logo="Assets\SmallTile.png"/>
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"  Square71x71Logo="Assets\SmallTile.png" Square310x310Logo="Assets\LargeTile.png"/>
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
       
       <Extensions>
         <desktop:Extension Category="windows.startupTask">
-          <desktop:StartupTask TaskId="TodoStartup" Enabled="false" DisplayName="Todo" />
+          <desktop:StartupTask TaskId="MemoStartup" Enabled="false" DisplayName="Memo" />
         </desktop:Extension>
         <desktop:Extension Category="windows.toastNotificationActivation">
           <desktop:ToastNotificationActivation ToastActivatorCLSID="C173E6AD-F0C3-4E8D-9A5B-1234567890AB" />
         </desktop:Extension>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-            <com:ExeServer Executable="Todo.exe" DisplayName="Todo" Arguments="----AppNotificationActivated:">
+            <com:ExeServer Executable="Memo.exe" DisplayName="Memo" Arguments="----AppNotificationActivated:">
               <com:Class Id="C173E6AD-F0C3-4E8D-9A5B-1234567890AB" />
             </com:ExeServer>
           </com:ComServer>

@@ -5,7 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 
-namespace Todo
+namespace Memo
 {
     /// <summary>
     /// Rainmeter-style desktop pinning service.

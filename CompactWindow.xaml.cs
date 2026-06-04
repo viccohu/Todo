@@ -3,11 +3,12 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System.Collections.ObjectModel;
 using System;
+using System.IO;
 using System.Threading.Tasks;
-using Todo.Models;
-using Todo.Services;
+using Memo.Models;
+using Memo.Services;
 
-namespace Todo
+namespace Memo
 {
     public sealed partial class CompactWindow : Window
     {
@@ -36,6 +37,9 @@ namespace Todo
 
             CompactTasksList.ItemsSource = _tasks;
             CompactCompletedTasksList.ItemsSource = _completedTasks;
+
+            Title = "Memo";
+            try { this.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "16logo.ico")); } catch { }
 
             // 固定到桌面右下角
             this.SetupPinnedWindow(yOffset);

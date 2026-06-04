@@ -1,9 +1,9 @@
 {
   "profiles": {
-    "Todo (Package)": {
+    "Memo (Package)": {
       "commandName": "MsixPackage"
     },
-    "Todo (Unpackaged)": {
+    "Memo (Unpackaged)": {
       "commandName": "Project"
     }
   }

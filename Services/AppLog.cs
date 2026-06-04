@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Windows.Storage;
 
-namespace Todo.Services
+namespace Memo.Services
 {
     public static class AppLog
     {

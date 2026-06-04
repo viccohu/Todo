@@ -1,14 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Application
-    x:Class="Todo.App"
+    x:Class="Memo.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:Todo">
+    xmlns:local="using:Memo">
+    <Application.RequestedTheme>Dark</Application.RequestedTheme>
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <!-- 自定义语义笔刷（业务含义的颜色，无法用原生 ThemeResource 直接替代） -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="TaskUrgentTodayBrush" Color="#E8F5E9" />
+                    <SolidColorBrush x:Key="TaskUrgentTomorrowBrush" Color="#F1F8E9" />
+                    <SolidColorBrush x:Key="TaskUrgentForegroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="TaskNormalForegroundBrush" Color="#666666" />
+                    <SolidColorBrush x:Key="TaskCompleteAutoBrush" Color="#FF8C00" />
+                    <SolidColorBrush x:Key="TaskCompleteManualBrush" Color="#0078D4" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="TaskUrgentTodayBrush" Color="#618C24" />
+                    <SolidColorBrush x:Key="TaskUrgentTomorrowBrush" Color="#708A4D" />
+                    <SolidColorBrush x:Key="TaskUrgentForegroundBrush" Color="#222222" />
+                    <SolidColorBrush x:Key="TaskNormalForegroundBrush" Color="#555555" />
+                    <SolidColorBrush x:Key="TaskCompleteAutoBrush" Color="#FF8C00" />
+                    <SolidColorBrush x:Key="TaskCompleteManualBrush" Color="#0078D4" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
             <Style TargetType="MenuFlyoutPresenter">
                 <Setter Property="MinWidth" Value="180" />
             </Style>

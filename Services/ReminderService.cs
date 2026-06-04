@@ -1,7 +1,7 @@
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using Microsoft.UI.Dispatching;
-using Todo.Models;
+using Memo.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,7 +9,7 @@ using System.Threading;
 using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
 
-namespace Todo.Services
+namespace Memo.Services
 {
     public class ReminderService
     {
@@ -24,7 +24,7 @@ namespace Todo.Services
         private DispatcherQueue? _dispatcherQueue;
         private bool _isInitialized;
         private bool _hasCompletedInitialReminderCheck;
-        private const string ReminderNotificationGroup = "Todo.Reminders";
+        private const string ReminderNotificationGroup = "Memo.Reminders";
         private const string SnoozeInputId = "snoozeMinutes";
         private static readonly TimeSpan ReminderCatchUpWindow = TimeSpan.FromMinutes(2);
 

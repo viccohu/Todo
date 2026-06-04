@@ -1,21 +1,21 @@
 <Window
-    x:Class="Todo.MainWindow"
+    x:Class="Memo.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:Todo"
-    xmlns:models="using:Todo.Models"
+    xmlns:local="using:Memo"
+    xmlns:models="using:Memo.Models"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid x:Name="RootGrid" Background="#161616">
+    <Grid x:Name="RootGrid" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="32"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <!-- 自定义标题栏 -->
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="#1c1c1c" Height="32">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}" Height="32">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftPaddingColumn" Width="0"/>
                 <ColumnDefinition x:Name="IconColumn" Width="Auto"/>
@@ -25,12 +25,11 @@
                 <ColumnDefinition x:Name="RightPaddingColumn" Width="0"/>
             </Grid.ColumnDefinitions>
 
-            <FontIcon x:Name="TitleBarIcon" 
-                      Glyph="&#xE8C8;" 
-                      FontSize="14" 
-                      Foreground="#0078d4" 
-                      Grid.Column="1" 
-                      Margin="8,0,4,0" 
+            <ImageIcon x:Name="TitleBarIcon"
+                      Source="ms-appx:///Assets/16x.png"
+                      Grid.Column="1"
+                      Margin="20,0,8,0"
+                       Width="18"
                       VerticalAlignment="Center"/>
             
             <TextBlock x:Name="TitleBarTextBlock" 
@@ -38,19 +37,19 @@
                        Style="{StaticResource CaptionTextBlockStyle}"
                        Grid.Column="2"
                        VerticalAlignment="Center"
-                       Foreground="White"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                        FontWeight="SemiBold"/>
 
             <Grid x:Name="DragRegion" Grid.Column="3"/>
 
-            <Button x:Name="PinButton" Click="ToggleDesktopMode_Click" 
-                    Background="Transparent" 
-                    BorderThickness="0" 
+            <Button x:Name="PinButton" Click="ToggleDesktopMode_Click"
+                    Background="Transparent"
+                    BorderThickness="0"
                     Padding="8,4"
                     Grid.Column="4"
                     ToolTipService.ToolTip="固定到桌面">
-                <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="14" Foreground="#888"/>
-            </Button>
+                <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="14" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                </Button>
         </Grid>
 
         <!-- 正常模式：NavigationView 主内容区 -->
@@ -61,7 +60,7 @@
                             PaneDisplayMode="Left"
                             OpenPaneLength="260"
                             CompactPaneLength="60"
-                            Background="#1c1c1c"
+                            Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
                             PaneOpening="NavView_PaneOpened"
                             PaneClosing="NavView_PaneClosed"
                             ItemInvoked="NavView_ItemInvoked"
@@ -112,7 +111,7 @@
                                 Margin="0,0,0,0">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <ImageIcon Source="ms-appx:///Assets/icons/white/新建任务列表.svg" Width="16" Height="16"/>
-                                <TextBlock Text="新建列表" FontSize="12" Foreground="#ccc"/>
+                                <TextBlock Text="新建列表" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
                         </Button>
                         <Button x:Name="NewGroupButton"
@@ -127,7 +126,7 @@
                                 Margin="4,0,0,0">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <ImageIcon Source="ms-appx:///Assets/icons/white/新建分组.svg" Width="16" Height="16"/>
-                                <TextBlock Text="新建分组" FontSize="12" Foreground="#ccc"/>
+                                <TextBlock Text="新建分组" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
                         </Button>
                     </Grid>
@@ -141,7 +140,7 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- 主内容区 -->
-                    <Grid Grid.Column="0" Background="#161616" PointerPressed="ContentArea_PointerPressed">
+                    <Grid Grid.Column="0" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" PointerPressed="ContentArea_PointerPressed">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
@@ -151,7 +150,7 @@
                         <!-- 页面标题 -->
                         <StackPanel x:Name="PageHeader" Grid.Row="0" Orientation="Horizontal" Spacing="15" Margin="40,20,40,20">
                             <ImageIcon x:Name="PageIcon" Source="ms-appx:///Assets/icons/white/重要任务.svg" Width="28" Height="28"/>
-                            <TextBlock x:Name="PageTitle" Text="重要任务" FontSize="28" FontWeight="SemiBold" Foreground="White"/>
+                            <TextBlock x:Name="PageTitle" Text="重要任务" FontSize="28" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                         </StackPanel>
 
                         <!-- 记事本页面 -->
@@ -170,13 +169,13 @@
                                      TabCloseRequested="NotepadTabView_TabCloseRequested"
                                      SelectionChanged="NotepadTabView_SelectionChanged"
                                      SelectedIndex="0"
-                                     Background="#161616"
+                                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                                      IsAddTabButtonVisible="True">
                             </TabView>
 
                             <!-- 工具栏 -->
-                            <Grid x:Name="NotepadToolbar" Grid.Row="1" Background="#282828"
-                                 Padding="8,4" BorderBrush="#333" BorderThickness="0,0,0,1">
+                            <Grid x:Name="NotepadToolbar" Grid.Row="1" Background="{ThemeResource SolidBackgroundFillColorTertiaryBrush}"
+                                 Padding="8,4" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
@@ -189,19 +188,19 @@
                                             Click="NotepadOpen_Click"
                                             Background="Transparent" BorderThickness="0" Padding="6,4" AllowFocusOnInteraction="False" IsTabStop="False"
                                             ToolTipService.ToolTip="打开文件">
-                                        <FontIcon Glyph="&#xE8E5;" FontSize="15" Foreground="#ccc"/>
+                                        <FontIcon Glyph="&#xE8E5;" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     </Button>
                                     <Button x:Name="NotepadSaveButton"
                                             Click="NotepadSave_Click"
                                             Background="Transparent" BorderThickness="0" Padding="6,4" AllowFocusOnInteraction="False" IsTabStop="False"
                                             ToolTipService.ToolTip="保存">
-                                        <FontIcon Glyph="&#xE74E;" FontSize="15" Foreground="#ccc"/>
+                                        <FontIcon Glyph="&#xE74E;" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     </Button>
                                     <Button x:Name="NotepadSaveAsButton"
                                             Click="NotepadSaveAs_Click"
                                             Background="Transparent" BorderThickness="0" Padding="6,4" AllowFocusOnInteraction="False" IsTabStop="False"
                                             ToolTipService.ToolTip="另存为">
-                                        <FontIcon Glyph="&#xE792;" FontSize="15" Foreground="#ccc"/>
+                                        <FontIcon Glyph="&#xE792;" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     </Button>
                                 </StackPanel>
 
@@ -212,8 +211,8 @@
                                             Background="Transparent" BorderThickness="0" Padding="6,4" AllowFocusOnInteraction="False" IsTabStop="False"
                                             ToolTipService.ToolTip="切换预览/编辑">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <FontIcon x:Name="NotepadPreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="#ccc"/>
-                                            <TextBlock x:Name="NotepadPreviewToggleText" Text="编辑" FontSize="12" Foreground="#ccc" VerticalAlignment="Center"/>
+                                            <FontIcon x:Name="NotepadPreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock x:Name="NotepadPreviewToggleText" Text="编辑" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                 </StackPanel>
@@ -226,23 +225,23 @@
                                          Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          VerticalAlignment="Stretch"
                                          HorizontalAlignment="Stretch"
-                                         Foreground="#e0e0e0"
-                                         Background="#161616"
+                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                         Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                                          BorderThickness="0"
                                          Margin="0,0,0,0"
                                          Padding="24,8,24,8"
                                          KeyDown="NotepadEditor_KeyDown"
                                          TextChanged="NotepadEditor_TextChanged">
                                     <TextBox.Resources>
-                                        <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#555"/>
+                                        <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorTertiary}"/>
                                         <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
                                         <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
                                         <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
-                                        <SolidColorBrush x:Key="TextControlBackground" Color="#161616"/>
-                                        <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#161616"/>
-                                        <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#161616"/>
-                                        <SolidColorBrush x:Key="TextControlForeground" Color="#e0e0e0"/>
-                                        <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#e0e0e0"/>
+                                        <SolidColorBrush x:Key="TextControlBackground" Color="{ThemeResource SolidBackgroundFillColorBase}"/>
+                                        <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="{ThemeResource SolidBackgroundFillColorBase}"/>
+                                        <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="{ThemeResource SolidBackgroundFillColorBase}"/>
+                                        <SolidColorBrush x:Key="TextControlForeground" Color="{ThemeResource TextFillColorPrimary}"/>
+                                        <SolidColorBrush x:Key="TextControlForegroundFocused" Color="{ThemeResource TextFillColorPrimary}"/>
                                     </TextBox.Resources>
                                 </TextBox>
                             </ScrollViewer>
@@ -253,8 +252,8 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="NotepadUndoText" Grid.Column="0" Text="" FontSize="12" Foreground="#ccc" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                <Button Grid.Column="1" Click="NotepadUndoClose_Click" Background="Transparent" BorderThickness="0" Padding="8,4" Foreground="#4da6ff" FontSize="12">
+                                <TextBlock x:Name="NotepadUndoText" Grid.Column="0" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                <Button Grid.Column="1" Click="NotepadUndoClose_Click" Background="Transparent" BorderThickness="0" Padding="8,4" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" FontSize="12">
                                     恢复
                                 </Button>
                             </Grid>
@@ -266,12 +265,12 @@
                                 <ItemsControl x:Name="TasksList">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border BorderBrush="#333"
+                                            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="8"
                                                     Height="60"
                                                     Margin="0,0,0,10"
-                                                    Background="#1e1e1e"
+                                                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
                                                     Loaded="TaskBorder_Loaded"
                                                     Unloaded="TaskBorder_Unloaded"
                                                     PointerPressed="TaskItem_PointerPressed"
@@ -296,7 +295,7 @@
                                                                   Click="TaskCheckBox_Click"/>
                                                         <TextBlock Grid.Column="1"
                                                                    Text="{Binding Title}"
-                                                                   Foreground="White"
+                                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                                    Margin="10,0,0,0"
                                                                    VerticalAlignment="Center"/>
                                                         <StackPanel Grid.Column="2"
@@ -317,7 +316,7 @@
 
                                 <Button x:Name="CompletedButton" 
                                         Margin="0,10,0,10" 
-                                        Background="#262626" 
+                                        Background="{ThemeResource ControlFillColorDefaultBrush}"
                                         BorderThickness="0" 
                                         CornerRadius="4" 
                                         Padding="8,4" 
@@ -335,12 +334,12 @@
                                     </ItemsControl.RenderTransform>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border BorderBrush="#333"
+                                            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="8"
                                                     Height="60"
                                                     Margin="0,0,0,10"
-                                                    Background="#1e1e1e"
+                                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                                     Opacity="0.6"
                                                     Loaded="TaskBorder_Loaded"
                                                     Unloaded="TaskBorder_Unloaded"
@@ -368,7 +367,7 @@
                                                         <TextBlock Grid.Column="1"
                                                                    Text="{Binding Title}"
                                                                    TextDecorations="Strikethrough"
-                                                                   Foreground="#666"
+                                                                   Foreground="{ThemeResource TextFillColorDisabledBrush}"
                                                                    Margin="10,0,0,0"
                                                                    VerticalAlignment="Center"/>
                                                         <StackPanel Grid.Column="2"
@@ -395,11 +394,11 @@
                         </ScrollViewer>
 
                         <!-- 固定底部 - 添加任务 -->
-                        <Grid x:Name="AddTaskBar" Grid.Row="2" Background="#161616" Padding="40,10,40,10">
+                        <Grid x:Name="AddTaskBar" Grid.Row="2" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" Padding="40,10,40,10">
                             <Grid x:Name="AddTaskContainer">
                                 <!-- 按钮状态 -->
                                 <Border x:Name="AddTaskButton" 
-                                        BorderBrush="#333" 
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                         BorderThickness="1" 
                                         CornerRadius="8" 
                                         Height="60"
@@ -408,24 +407,24 @@
                                     <Button Click="ShowAddTaskInput_Click" 
                                             HorizontalAlignment="Stretch" 
                                             VerticalAlignment="Stretch" 
-                                            Background="Transparent" 
+                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" 
                                             BorderThickness="0" 
                                             HorizontalContentAlignment="Left">
                                         <StackPanel Orientation="Horizontal" Spacing="12" Margin="10,0">
-                                            <FontIcon Glyph="&#xE710;" FontSize="18" Foreground="#0078d4"/>
-                                            <TextBlock Text="添加任务" Foreground="#777" VerticalAlignment="Center"/>
+                                            <FontIcon Glyph="&#xE710;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                            <TextBlock Text="添加任务" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                 </Border>
                                 
                                 <!-- 输入框状态 -->
                                 <Border x:Name="AddTaskInputArea"
-                                        BorderBrush="#333"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                         BorderThickness="1"
                                         CornerRadius="8"
                                         Height="60"
                                         HorizontalAlignment="Stretch"
-                                        Background="#1e1e1e"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                         Visibility="Collapsed">
                                     <Grid Margin="22,0">
                                         <Grid.ColumnDefinitions>
@@ -440,7 +439,7 @@
                                                  Background="Transparent"
                                                  BorderThickness="0"
                                                  FontSize="14"
-                                                 Foreground="#0078d4"
+                                                 Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                                                  VerticalAlignment="Center"
                                                  Margin="12,0"
                                                  KeyDown="AddTaskInput_KeyDown"
@@ -466,10 +465,10 @@
                                                 <FontIcon x:Name="AddTaskRecurrenceIcon"
                                                           Glyph="&#xE8EE;"
                                                           FontSize="22"
-                                                          Foreground="#555"/>
+                                                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                                 <TextBlock x:Name="AddTaskRecurrenceText"
                                                            Text=""
-                                                           Foreground="#0078d4"
+                                                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                                                            FontSize="12"
                                                            VerticalAlignment="Center"
                                                            Visibility="Collapsed"/>
@@ -487,7 +486,7 @@
                                                 <ImageIcon x:Name="AddTaskDueDateIcon" Source="ms-appx:///Assets/icons/white/日历.svg" Width="22" Height="22"/>
                                                 <TextBlock x:Name="AddTaskDueDateText"
                                                            Text=""
-                                                           Foreground="#0078d4"
+                                                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                                                            FontSize="12"
                                                            VerticalAlignment="Center"
                                                            Visibility="Collapsed"/>
@@ -504,11 +503,11 @@
                                                                       Language="zh-CN"
                                                                       SelectedDatesChanged="AddTaskCalendarView_SelectedDatesChanged">
                                                             <CalendarView.Resources>
-                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="#0078D4"/>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="{ThemeResource SystemAccentColor}"/>
                                                                 <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedForeground" Color="White"/>
-                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="#FFFFFF"/>
-                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="#168DE2"/>
-                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="#006CBE"/>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="{ThemeResource SystemAccentColor}"/>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="{ThemeResource SystemAccentColorLight1}"/>
+                                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="{ThemeResource SystemAccentColorDark1}"/>
                                                                 <x:Double x:Key="CalendarViewCalendarItemBorderThemeThickness">2</x:Double>
                                                             </CalendarView.Resources>
                                                         </CalendarView>
@@ -517,7 +516,7 @@
                                                                 Click="AddTaskClearDate_Click"
                                                                 Background="Transparent"
                                                                 BorderThickness="0"
-                                                                Foreground="#888"
+                                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                                 FontSize="12"
                                                                 HorizontalAlignment="Right"
                                                                 Padding="8,4"/>
@@ -535,9 +534,10 @@
                     <Grid x:Name="DetailDrawer" 
                           Grid.Column="1" 
                           Width="380"
-                          Background="#1c1c1c" 
-                          BorderBrush="#2a2a2a" 
+                          Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
+                          BorderBrush="{ThemeResource ControlStrokeColorSecondaryBrush}"
                           BorderThickness="1,0,0,0"
+                          CornerRadius="8,0,0,8"
                           Visibility="Collapsed">
                         <Grid.RenderTransform>
                             <TranslateTransform x:Name="DrawerTranslateTransform" X="380"/>
@@ -548,14 +548,14 @@
                         </Grid.RowDefinitions>
 
                         <!-- 抽屉标题 -->
-                        <Grid Grid.Row="0" Height="32" Padding="16,0" BorderBrush="#2a2a2a" BorderThickness="0,0,0,1">
+                        <Grid Grid.Row="0" Height="32" Padding="16,8,16,0" BorderBrush="{ThemeResource ControlStrokeColorSecondaryBrush}" BorderThickness="0,0,0,0">
                             
                             <Button Click="CloseDrawer_Click" 
                                     HorizontalAlignment="Right"
                                     Background="Transparent"
                                     BorderThickness="0"
                                     Padding="8">
-                                <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="#888"/>
+                                <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                             </Button>
                         </Grid>
 
@@ -563,7 +563,7 @@
                         <ScrollViewer Grid.Row="1" Padding="16" x:Name="DrawerScrollViewer">
                             <StackPanel Spacing="0">
                                 <!-- 任务标题（无背景） -->
-                                <Grid Background="#222" CornerRadius="8,8,0,0" Padding="8,8,8,0">
+                                <Grid Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8,8,0,0" Padding="8,8,8,0">
                                     <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="32"/>
                                             <ColumnDefinition Width="*"/>
@@ -572,7 +572,7 @@
                                                   x:Name="DetailCheckBox" 
                                                   FontSize="16" 
                                                   FontWeight="SemiBold"
-                                                  Foreground="White"
+                                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                   Click="DetailCheckBox_Click"/>
                                     <TextBox Grid.Column="1"
                                              x:Name="DetailTitle" 
@@ -580,7 +580,7 @@
                                              BorderThickness="0"
                                              FontSize="16"
                                              FontWeight="SemiBold"
-                                             Foreground="White"
+                                             Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                              Padding="0"
                                              Margin="8,0,0,0"
                                              VerticalAlignment="Center"
@@ -618,7 +618,7 @@
                                 </Grid>
 
                                 <!-- 子任务区（背景框） -->
-                                <Border Background="#222" CornerRadius="0,0,8,8" Padding="8" Margin="0,0,0,12" MinHeight="50">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="0,0,8,8" Padding="8" Margin="0,0,0,12" MinHeight="50">
                                     <StackPanel Spacing="0">
                                         <!-- 子任务列表 -->
                                         <ItemsControl x:Name="SubTasksList">
@@ -639,7 +639,7 @@
                                                                  Background="Transparent" 
                                                                  BorderThickness="0"
                                                                  FontSize="13"
-                                                                 Foreground="#ccc"
+                                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                                  Padding="0,0,0,0"
                                                                  Margin="8,0,0,0"
                                                                  VerticalAlignment="Center"
@@ -680,7 +680,7 @@
                                                                 Background="Transparent"
                                                                 BorderThickness="0"
                                                                 Padding="4">
-                                                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
                                                         </Button>
                                                     </Grid>
                                                 </DataTemplate>
@@ -696,14 +696,14 @@
                                                     Padding="0,4">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                                     <ImageIcon Source="ms-appx:///Assets/icons/white/任务列表.svg" Width="22" Height="18"/>
-                                                    <TextBlock Text="添加子任务" Foreground="#990078d4" FontSize="14"/>
+                                                    <TextBlock Text="添加子任务" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Opacity="0.8" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>
                                             <TextBox x:Name="AddSubTaskTextBox" 
                                                      Background="Transparent" 
                                                      BorderThickness="0"
                                                      FontSize="14"
-                                                     Foreground="#0078d4"
+                                                     Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                                                      Visibility="Collapsed"
                                                      KeyDown="AddSubTaskInput_KeyDown"
                                                      LostFocus="AddSubTaskInput_LostFocus"
@@ -723,7 +723,7 @@
                                 </Border>
 
                                 <!-- 备注区（背景框） -->
-                                <Border Background="#222" CornerRadius="8" Margin="0,0,0,12">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Margin="0,0,0,12">
                                     <Grid>
                                         <!-- 备注文本框 -->
                                         <TextBox
@@ -731,7 +731,7 @@
                                                  PlaceholderText="备注"
                                                  Background="Transparent"
                                                  BorderThickness="0"
-                                                 Foreground="#ccc"
+                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                  AcceptsReturn="True"
                                                  TextWrapping="Wrap"
                                                  Height="100"
@@ -740,7 +740,7 @@
                                                  KeyDown="DetailDescription_KeyDown"
                                                  RightTapped="DetailDescription_RightTapped">
                                             <TextBox.Resources>
-                                                <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#666"/>
+                                                <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorDisabled}"/>
                                                 <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
                                                 <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
                                                 <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
@@ -750,7 +750,7 @@
                                 </Border>
 
                                 <!-- 设置区（背景框） -->
-                                <Border Background="#222" CornerRadius="8">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
                                     <StackPanel>
                                         <!-- 截止日期 -->
                                         <Grid Height="48" Padding="12,0">
@@ -762,7 +762,7 @@
                                                     HorizontalContentAlignment="Left">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                                     <ImageIcon Source="ms-appx:///Assets/icons/white/日历888.svg" Width="16" Height="16"/>
-                                                    <TextBlock x:Name="DueDateText" Text="截止日期" Foreground="#ccc" FontSize="14"/>
+                                                    <TextBlock x:Name="DueDateText" Text="截止日期" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>
                                             <Button x:Name="ClearDueDateButton" 
@@ -772,7 +772,7 @@
                                                     BorderThickness="0"
                                                     Padding="8"
                                                     Visibility="Collapsed">
-                                                <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                                <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
                                             </Button>
                                         </Grid>
                                         <CalendarView x:Name="DetailCalendarView" 
@@ -781,17 +781,17 @@
                                                             SelectedDatesChanged="DetailCalendarView_SelectedDatesChanged"
                                                             Visibility="Collapsed">
                                             <CalendarView.Resources>
-                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="#0078D4"/>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="{ThemeResource SystemAccentColor}"/>
                                                 <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedForeground" Color="White"/>
-                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="#FFFFFF"/>
-                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="#168DE2"/>
-                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="#006CBE"/>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="{ThemeResource SystemAccentColor}"/>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="{ThemeResource SystemAccentColorLight1}"/>
+                                                <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="{ThemeResource SystemAccentColorDark1}"/>
                                                 <x:Double x:Key="CalendarViewCalendarItemBorderThemeThickness">2</x:Double>
                                             </CalendarView.Resources>
                                         </CalendarView>
                                         
                                         <!-- 提醒我 -->
-                                        <Grid Height="48" Padding="12,0" BorderBrush="#2d2d2d" BorderThickness="0,1,0,0">
+                                        <Grid Height="48" Padding="12,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
                                             <Button x:Name="ReminderButton" 
                                                     Click="ShowReminderDialog_Click"
                                                     Background="Transparent" 
@@ -799,8 +799,8 @@
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <FontIcon Glyph="&#xEA8F;" FontSize="16" Foreground="#888"/>
-                                                    <TextBlock x:Name="ReminderText" Text="提醒我" Foreground="#ccc" FontSize="14"/>
+                                                    <FontIcon Glyph="&#xEA8F;" FontSize="16" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                    <TextBlock x:Name="ReminderText" Text="提醒我" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>
                                             <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
@@ -811,7 +811,7 @@
                                                               Padding="4"
                                                               Visibility="Collapsed"
                                                               ToolTipService.ToolTip="截止日提醒">
-                                                    <FontIcon Glyph="&#xEE93;" FontSize="18" Foreground="#888"/>
+                                                    <FontIcon Glyph="&#xEE93;" FontSize="18"/>
                                                 </ToggleButton>
                                                 <Button x:Name="RecurringReminderButton"
                                                         Click="ToggleRecurringReminder_Click"
@@ -819,7 +819,7 @@
                                                         BorderThickness="0"
                                                         Padding="4"
                                                         Visibility="Collapsed">
-                                                    <FontIcon Glyph="&#xE8FD;" FontSize="12" Foreground="#0078d4"/>
+                                                    <FontIcon Glyph="&#xE8FD;" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
                                                 </Button>
                                                 <Button x:Name="ClearReminderButton" 
                                                         Click="ClearReminder_Click"
@@ -827,46 +827,46 @@
                                                         BorderThickness="0"
                                                         Padding="4"
                                                         Visibility="Collapsed">
-                                                    <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                                    <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
                                                 </Button>
                                             </StackPanel>
                                         </Grid>
                                         
                                         <!-- 提醒设置弹窗 -->
                                         <Border x:Name="ReminderSettingsPanel" 
-                                                Background="#252525" 
+                                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" 
                                                 CornerRadius="8" 
                                                 Padding="12"
                                                 Visibility="Collapsed"
                                                 Margin="0,8,0,0">
                                             <StackPanel>
-                                                <TextBlock Text="选择提醒日期" FontSize="13" Foreground="#888" Margin="0,0,0,8"/>
+                                                <TextBlock Text="选择提醒日期" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,0,0,8"/>
                                                 <CalendarView x:Name="ReminderCalendarView"
                                                               HorizontalAlignment="Stretch"
                                                               Language="zh-CN"
                                                               SelectionMode="Multiple"
                                                               SelectedDatesChanged="ReminderCalendarView_SelectedDatesChanged">
                                                     <CalendarView.Resources>
-                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="#0078D4"/>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBackground" Color="{ThemeResource SystemAccentColor}"/>
                                                         <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedForeground" Color="White"/>
-                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="#FFFFFF"/>
-                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="#168DE2"/>
-                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="#006CBE"/>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedBorderBrush" Color="{ThemeResource SystemAccentColor}"/>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedHoverBackground" Color="{ThemeResource SystemAccentColorLight1}"/>
+                                                        <SolidColorBrush x:Key="CalendarViewCalendarItemSelectedPressedBackground" Color="{ThemeResource SystemAccentColorDark1}"/>
                                                         <x:Double x:Key="CalendarViewCalendarItemBorderThemeThickness">2</x:Double>
                                                     </CalendarView.Resources>
                                                 </CalendarView>
                                                 <TextBlock x:Name="ReminderSelectedDatesText"
                                                            Text="未选择日期"
                                                            FontSize="12"
-                                                           Foreground="#BDBDBD"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                            TextWrapping="Wrap"
                                                            Margin="0,8,0,0"/>
                                                 
-                                                <TextBlock Text="提醒时间" FontSize="13" Foreground="#888" Margin="0,12,0,8" />
+                                                <TextBlock Text="提醒时间" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,12,0,8" />
                                                 <TimePicker x:Name="ReminderTimePicker" HorizontalAlignment="Stretch"/>
                                                 
                                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0" >
-                                                    <TextBlock Text="重复提醒" FontSize="13" Foreground="#888" VerticalAlignment="Center" />
+                                                    <TextBlock Text="重复提醒" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
                                                     <ToggleSwitch x:Name="EnableSameDayReminderToggle"
                                                                   Toggled="EnableSameDayReminderToggle_Toggled"
                                                                   OnContent=""
@@ -874,8 +874,8 @@
                                                                   MinWidth="0"
                                                                   Width="50"
                                                                   Margin="8,0"/>
-                                                    <TextBlock Text="|" FontSize="13" Foreground="#888" VerticalAlignment="Center" />
-                                                    <TextBlock Text="提醒频率" FontSize="13" Foreground="#888" VerticalAlignment="Center" Margin="8,0,8,0" />
+                                                    <TextBlock Text="|" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                                    <TextBlock Text="提醒频率" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" Margin="8,0,8,0" />
                                                     <ComboBox x:Name="SameDayIntervalComboBox"
                                                               Width="120"
                                                               IsEnabled="False"
@@ -897,18 +897,18 @@
                                                     <Button Content="取消" 
                                                             Margin="0,0,8,0" 
                                                             Click="CancelReminderSettings_Click"
-                                                            Background="#333"
+                                                            Background="{ThemeResource SolidBackgroundFillColorQuinaryBrush}"
                                                             BorderThickness="0"/>
-                                                    <Button Content="确认" 
-                                                            Background="#0078d4"
-                                                            Foreground="White"
+                                                    <Button Content="确认"
+                                                            Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                             Click="ConfirmReminderSettings_Click"/>
                                                 </StackPanel>
                                             </StackPanel>
                                         </Border>
                                         
                                         <!-- 重复 -->
-                                        <Grid Height="48" Padding="12,0" BorderBrush="#2d2d2d" BorderThickness="0,1,0,0">
+                                        <Grid Height="48" Padding="12,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
                                             <Button x:Name="RecurrenceButton" 
                                                     Click="ShowRecurrenceMenu_Click"
                                                     Background="Transparent" 
@@ -916,8 +916,8 @@
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <FontIcon Glyph="&#xE8EE;" FontSize="16" Foreground="#888"/>
-                                                    <TextBlock x:Name="RecurrenceText" Text="重复" Foreground="#ccc" FontSize="14"/>
+                                                    <FontIcon Glyph="&#xE8EE;" FontSize="16" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                    <TextBlock x:Name="RecurrenceText" Text="重复" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="14"/>
                                                 </StackPanel>
                                             </Button>
                                             <Button x:Name="ClearRecurrenceButton" 
@@ -927,15 +927,15 @@
                                                     BorderThickness="0"
                                                     Padding="8"
                                                     Visibility="Collapsed">
-                                                <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#666"/>
+                                                <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
                                             </Button>
                                         </Grid>
                                         
                                         <!-- 标记为重要 -->
-                                        <Grid Height="48" Padding="12,0" BorderBrush="#2d2d2d" BorderThickness="0,1,0,0">
+                                        <Grid Height="48" Padding="24,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
                                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                <FontIcon Glyph="&#xE8C8;" FontSize="16" Foreground="#888"/>
-                                                <TextBlock Text="标记为重要" Foreground="#ccc" FontSize="14" VerticalAlignment="Center"/>
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="16" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                <TextBlock Text="标记为重要" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="14" VerticalAlignment="Center"/>
                                             </StackPanel>
                                             <ToggleSwitch x:Name="ImportantToggle" 
                                                           OnContent="" OffContent=""

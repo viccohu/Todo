@@ -3,10 +3,11 @@ using System.Runtime.CompilerServices;
 using System.Collections.ObjectModel;
 using System;
 using Microsoft.UI;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
-using Todo.Models;
+using Memo.Models;
 
-namespace Todo
+namespace Memo
 {
     public class TaskItem : INotifyPropertyChanged
     {
@@ -149,16 +150,16 @@ namespace Todo
                 var d = DueDate.Value.Date;
                 var today = DateTime.Today;
                 if (d == today)
-                    return new SolidColorBrush(ColorHelper.FromArgb(255, 0x61, 0x8C, 0x24));
+                    return (SolidColorBrush)Application.Current.Resources["TaskUrgentTodayBrush"];
                 if (d == today.AddDays(1))
-                    return new SolidColorBrush(ColorHelper.FromArgb(255, 0x70, 0x8A, 0x4D));
+                    return (SolidColorBrush)Application.Current.Resources["TaskUrgentTomorrowBrush"];
                 return null;
             }
         }
 
         public SolidColorBrush DateLabelForeground => IsUrgent
-            ? new SolidColorBrush(ColorHelper.FromArgb(255, 0x22, 0x22, 0x22))
-            : new SolidColorBrush(ColorHelper.FromArgb(255, 0x55, 0x55, 0x55));
+            ? (SolidColorBrush)Application.Current.Resources["TaskUrgentForegroundBrush"]
+            : (SolidColorBrush)Application.Current.Resources["TaskNormalForegroundBrush"];
 
         private bool IsUrgent
         {
@@ -174,8 +175,8 @@ namespace Todo
 
         public SolidColorBrush? CompletionIndicatorBrush => IsChecked
             ? (IsAutoCompleted
-                ? new SolidColorBrush(ColorHelper.FromArgb(255, 0xFF, 0x8C, 0x00))  // 橙色 = 系统自动完成
-                : new SolidColorBrush(ColorHelper.FromArgb(255, 0x00, 0x78, 0xD4))) // 蓝色 = 手动点击完成
+                ? (SolidColorBrush)Application.Current.Resources["TaskCompleteAutoBrush"]
+                : (SolidColorBrush)Application.Current.Resources["TaskCompleteManualBrush"])
             : null;
         
         public ObservableCollection<SubTask> SubTasks { get; set; } = new ObservableCollection<SubTask>();

@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System;
 
-namespace Todo.Models
+namespace Memo.Models
 {
     public class SubTask : INotifyPropertyChanged
     {

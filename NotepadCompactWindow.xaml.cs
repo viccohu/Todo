@@ -10,10 +10,10 @@ using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.Storage;
 using WinRT.Interop;
-using Todo.Models;
-using Todo.Services;
+using Memo.Models;
+using Memo.Services;
 
-namespace Todo
+namespace Memo
 {
     public sealed partial class NotepadCompactWindow : Window
     {
@@ -37,6 +37,7 @@ namespace Todo
             this.InitializeComponent();
             _dbService = dbService;
             _tabs = tabs ?? new ObservableCollection<NotepadTab>();
+
             this.Closed += (s, e) => this.StopPinnedWindowGuard();
 
             this.ApplyCompactWindowStyle();
@@ -171,7 +172,7 @@ namespace Todo
             var header = new TextBlock
             {
                 FontSize = 12,
-                Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 180, 180, 180)),
+                Foreground = (SolidColorBrush)Application.Current.Resources["TextFillColorSecondaryBrush"],
                 VerticalAlignment = VerticalAlignment.Center
             };
             header.SetBinding(TextBlock.TextProperty, binding);

@@ -11,20 +11,22 @@ using Microsoft.Win32;
 using Windows.ApplicationModel;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using Windows.UI.ViewManagement;
 using WinRT.Interop;
 
-namespace Todo.Services;
+namespace Memo.Services;
 
 public class SystemTrayService : IDisposable
 {
     private readonly TaskbarIcon _taskbarIcon;
     private readonly Window _window;
     private readonly DatabaseService _db;
+    private readonly UISettings _uiSettings = new();
     private System.Drawing.Icon? _icon;
     private bool _isDisposed;
 
     private const string StartupKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string StartupValueName = "Todo";
+    private const string StartupValueName = "Memo";
     private ToggleMenuFlyoutItem? _autoStartItem;
 
     /// <summary>Fired after importing a database; the app should reload all data.</summary>
@@ -39,14 +41,20 @@ public class SystemTrayService : IDisposable
 
         _taskbarIcon = new TaskbarIcon
         {
-            ToolTipText = "Todo 待办事项",
+            ToolTipText = "Memo 待办事项",
             MenuActivation = PopupActivationMode.RightClick,
             ContextMenuMode = ContextMenuMode.SecondWindow,
             LeftClickCommand = new RelayCommand(ShowFromTray),
             DoubleClickCommand = new RelayCommand(ShowFromTray),
         };
 
-        LoadTrayIcon();
+        LoadTrayIconForOsTheme();
+
+        // 监听系统主题变化
+        _uiSettings.ColorValuesChanged += (_, _) =>
+        {
+            _ = _window.DispatcherQueue.TryEnqueue(LoadTrayIconForOsTheme);
+        };
 
         var menu = new MenuFlyout();
 
@@ -75,6 +83,18 @@ public class SystemTrayService : IDisposable
         _autoStartItem.Click += (_, _) => ToggleAutoStart();
         menu.Items.Add(_autoStartItem);
 
+        // 首次启动默认开启开机自启动
+        var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
+        if (!settings.Values.ContainsKey("AutoStartInitialized"))
+        {
+            settings.Values["AutoStartInitialized"] = true;
+            if (!IsAutoStartEnabled())
+            {
+                EnableAutoStart();
+                _autoStartItem.IsChecked = true;
+            }
+        }
+
         menu.Items.Add(new MenuFlyoutSeparator());
 
         var exitItem = new MenuFlyoutItem { Text = "退出" };
@@ -88,13 +108,21 @@ public class SystemTrayService : IDisposable
         RepairAutoStartPath();
     }
 
-    private void LoadTrayIcon()
+    private void LoadTrayIconForOsTheme()
     {
         try
         {
-            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "16logo.ico");
+            bool isLight;
+            using (var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+            {
+                isLight = key?.GetValue("AppsUseLightTheme") is int v && v == 1;
+            }
+            var iconFileName = isLight ? "16-l-logo.ico" : "16logo.ico";
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", iconFileName);
             if (File.Exists(iconPath))
             {
+                _icon?.Dispose();
                 _icon = new System.Drawing.Icon(iconPath);
                 _taskbarIcon.Icon = _icon;
             }
@@ -193,7 +221,7 @@ public class SystemTrayService : IDisposable
         {
             try
             {
-                var task = StartupTask.GetAsync("TodoStartup").GetAwaiter().GetResult();
+                var task = StartupTask.GetAsync("MemoStartup").GetAwaiter().GetResult();
                 return task.State == StartupTaskState.Enabled
                     || task.State == StartupTaskState.EnabledByPolicy;
             }
@@ -214,7 +242,7 @@ public class SystemTrayService : IDisposable
             bool enabled = !IsAutoStartEnabled();
             if (IsPackaged)
             {
-                var task = await StartupTask.GetAsync("TodoStartup");
+                var task = await StartupTask.GetAsync("MemoStartup");
                 if (enabled)
                 {
                     var result = await task.RequestEnableAsync();
@@ -247,6 +275,19 @@ public class SystemTrayService : IDisposable
 
     private static bool IsPackaged =>
         Windows.ApplicationModel.Package.Current != null;
+
+    private static void EnableAutoStart()
+    {
+        try
+        {
+            if (!IsPackaged)
+            {
+                using var key = Registry.CurrentUser.CreateSubKey(StartupKeyPath);
+                key?.SetValue(StartupValueName, GetExecutablePath());
+            }
+        }
+        catch { }
+    }
 
     private static string GetExecutablePath() =>
         $"\"{Environment.ProcessPath}\"";

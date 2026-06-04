@@ -1,4 +1,4 @@
-namespace Todo.Models
+namespace Memo.Models
 {
     public enum ListCategory
     {

@@ -1,12 +1,12 @@
 using Microsoft.Data.Sqlite;
-using Todo.Models;
+using Memo.Models;
 using Windows.Storage;
 using System.Collections.Generic;
 using System.IO;
 using System;
 using System.Linq;
 
-namespace Todo.Services
+namespace Memo.Services
 {
     public class DatabaseService
     {
@@ -21,7 +21,7 @@ namespace Todo.Services
             // Migrate from old fixed path if it exists and new path doesn't
             var legacyDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Todo");
+                "Memo");
             var legacyDb = Path.Combine(legacyDir, "todo.db");
             if (!File.Exists(_dbPath) && File.Exists(legacyDb))
             {

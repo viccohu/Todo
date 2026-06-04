@@ -11,18 +11,19 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI;
 using Windows.Graphics;
 using Windows.Foundation;
-using Todo.Models;
-using Todo.Services;
+using Memo.Models;
+using Memo.Services;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
+using System.IO;
 using Windows.Storage.Pickers;
 using Windows.Storage;
 using WinRT.Interop;
 using System.Drawing.Printing;
 
-namespace Todo
+namespace Memo
 {
     public sealed partial class MainWindow : Window
     {
@@ -65,6 +66,11 @@ namespace Todo
         {
             this.InitializeComponent();
             AppLog.Info("App started");
+
+            // 设置窗口标题和图标（任务栏缩略图使用）
+            Title = "Memo";
+            try { this.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "16logo.ico")); } catch { }
+
             InitializeCustomTitleBar();
             InitializeCalendarBounds();
 
@@ -442,7 +448,7 @@ namespace Todo
                     HorizontalAlignment = HorizontalAlignment.Center,
                     Opacity = 0.12
                 };
-                var emptyIcon = new FontIcon { Glyph = "\uE8FD", FontSize = 28, Foreground = new SolidColorBrush(Colors.White), Margin = new Thickness(0, 20, 0, 20), HorizontalAlignment = HorizontalAlignment.Center };
+                var emptyIcon = new FontIcon { Glyph = "\uE8FD", FontSize = 28, Foreground = (SolidColorBrush)Application.Current.Resources["TextFillColorPrimaryBrush"], Margin = new Thickness(0, 20, 0, 20), HorizontalAlignment = HorizontalAlignment.Center };
                 
                 emptyPanel.Children.Add(emptyIcon);
                 
@@ -650,13 +656,17 @@ namespace Todo
         {
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
-            
+
             _appWindow = this.AppWindow;
             if (_appWindow != null)
             {
                 _appWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
                 _appWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
                 _appWindow.TitleBar.ButtonForegroundColor = Colors.White;
+                _appWindow.TitleBar.ButtonHoverBackgroundColor = ColorHelper.FromArgb(255, 0x44, 0x44, 0x44);
+                _appWindow.TitleBar.ButtonHoverForegroundColor = Colors.White;
+                _appWindow.TitleBar.ButtonPressedBackgroundColor = ColorHelper.FromArgb(255, 0x5a, 0x5a, 0x5a);
+                _appWindow.TitleBar.ButtonPressedForegroundColor = Colors.White;
             }
             
             AppTitleBar.Loaded += AppTitleBar_Loaded;
@@ -881,9 +891,10 @@ namespace Todo
 
         private void UpdateBorderBackground(Border border, TaskItem task)
         {
+            var resources = Application.Current.Resources;
             border.Background = task.IsSelected
-                ? new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0x2a, 0x2a, 0x2a))
-                : new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0x1e, 0x1e, 0x1e));
+                ? (SolidColorBrush)resources["ControlFillColorDefaultBrush"]
+                : (SolidColorBrush)resources["CardBackgroundFillColorDefaultBrush"];
         }
 
         private void TaskItem_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -919,8 +930,7 @@ namespace Todo
                     return;
                 }
                 
-                border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                    Microsoft.UI.ColorHelper.FromArgb(255, 0x25, 0x25, 0x25));
+                border.Background = (SolidColorBrush)Application.Current.Resources["CardBackgroundFillColorSecondaryBrush"];
             }
         }
 
@@ -1103,7 +1113,6 @@ namespace Todo
             {
                 DeadlineReminderToggle.Visibility = Visibility.Visible;
                 DeadlineReminderToggle.IsChecked = ReminderService.Instance.HasDeadlineReminders(_selectedTask.Id);
-                UpdateDeadlineReminderToggleAppearance();
             }
             else
             {
@@ -2325,23 +2334,12 @@ namespace Todo
                 ReminderService.Instance.RemoveDeadlineReminders(_selectedTask.Id);
             }
 
-            UpdateDeadlineReminderToggleAppearance();
 
             var reminders = _dbService.GetRemindersForTask(_selectedTask.Id);
             _selectedTask.Reminders.Clear();
             foreach (var r in reminders)
                 _selectedTask.Reminders.Add(r);
             RefreshSelectedTaskReminderControls();
-        }
-
-        private void UpdateDeadlineReminderToggleAppearance()
-        {
-            if (DeadlineReminderToggle.Content is FontIcon icon)
-            {
-                icon.Foreground = DeadlineReminderToggle.IsChecked == true
-                    ? new SolidColorBrush(Microsoft.UI.Colors.Black)
-                    : new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0x88, 0x88, 0x88));
-            }
         }
 
         private void AddTaskRecurrence_Click(object sender, RoutedEventArgs e)
@@ -2381,7 +2379,7 @@ namespace Todo
         private void SetPendingRecurrence(RecurrenceType type, string label)
         {
             _pendingRecurrence = type;
-            AddTaskRecurrenceIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212));
+            AddTaskRecurrenceIcon.Foreground = (SolidColorBrush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"];
             AddTaskRecurrenceText.Text = label;
             AddTaskRecurrenceText.Visibility = Visibility.Visible;
             ToolTipService.SetToolTip(AddTaskRecurrenceButton, $"重复: {label}");
@@ -2390,7 +2388,7 @@ namespace Todo
         private void ResetPendingRecurrence()
         {
             _pendingRecurrence = RecurrenceType.None;
-            AddTaskRecurrenceIcon.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 85, 85, 85));
+            AddTaskRecurrenceIcon.Foreground = (SolidColorBrush)Application.Current.Resources["TextFillColorTertiaryBrush"];
             AddTaskRecurrenceText.Visibility = Visibility.Collapsed;
             ToolTipService.SetToolTip(AddTaskRecurrenceButton, "设置重复");
         }

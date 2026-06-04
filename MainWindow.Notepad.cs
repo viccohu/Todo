@@ -10,9 +10,9 @@ using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.Storage;
 using WinRT.Interop;
-using Todo.Models;
+using Memo.Models;
 
-namespace Todo
+namespace Memo
 {
     public sealed partial class MainWindow
     {
@@ -152,7 +152,7 @@ namespace Todo
             var title = new TextBlock
             {
                 FontSize = 13,
-                Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204)),
+                Foreground = (SolidColorBrush)Application.Current.Resources["TextFillColorSecondaryBrush"],
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Center
@@ -172,7 +172,7 @@ namespace Todo
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
                 CornerRadius = new CornerRadius(1.5),
-                Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 0, 120, 212)),
+                Background = (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"],
                 Visibility = IsExternalNotepadTab(tab) ? Visibility.Visible : Visibility.Collapsed,
                 Margin = new Thickness(0, 2, 0, 0)
             };
@@ -208,7 +208,7 @@ namespace Todo
                     MinHeight = 0,
                     VerticalContentAlignment = VerticalAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Left,
-                    Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204)),
+                    Foreground = (SolidColorBrush)Application.Current.Resources["TextFillColorSecondaryBrush"],
                     UseSystemFocusVisuals = false
                 };
                 input.Resources["TextControlBackground"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
@@ -217,8 +217,8 @@ namespace Todo
                 input.Resources["TextControlBorderBrush"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
                 input.Resources["TextControlBorderBrushPointerOver"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
                 input.Resources["TextControlBorderBrushFocused"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                input.Resources["TextControlForeground"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204));
-                input.Resources["TextControlForegroundFocused"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 204, 204, 204));
+                input.Resources["TextControlForeground"] = (SolidColorBrush)Application.Current.Resources["TextFillColorSecondaryBrush"];
+                input.Resources["TextControlForegroundFocused"] = (SolidColorBrush)Application.Current.Resources["TextFillColorSecondaryBrush"];
                 tvi.Header = input;
                 DispatcherQueue.TryEnqueue(() =>
                 {

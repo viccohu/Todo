@@ -2,9 +2,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Collections.ObjectModel;
 using System;
-using Todo.Services;
+using Memo.Services;
 
-namespace Todo
+namespace Memo
 {
     public sealed partial class TasksPage : Page
     {

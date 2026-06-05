@@ -13,7 +13,7 @@
   <Identity
     Name="Vicco.Memo"
     Publisher="CN=985F48A7-D563-400E-8E17-8281366D331A"
-    Version="1.0.5.0" />
+    Version="1.0.7.0" />
 
   <mp:PhoneIdentity PhoneProductId="54a32c10-cf19-4e48-b243-cb9a603804c4" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

@@ -133,7 +133,7 @@
                 </NavigationView.PaneFooter>
 
                 <!-- 内容区域 - 使用 SplitView 实现抽屉 -->
-                <Grid>
+                <Grid Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -533,10 +533,11 @@
                     <!-- 右侧抽屉 - 任务详情 -->
                     <Grid x:Name="DetailDrawer" 
                           Grid.Column="1" 
+                          Margin="0,6"
                           Width="380"
                           Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
                           BorderBrush="{ThemeResource ControlStrokeColorSecondaryBrush}"
-                          BorderThickness="1,0,0,0"
+                          BorderThickness="1,1,1,1"
                           CornerRadius="8,0,0,8"
                           Visibility="Collapsed">
                         <Grid.RenderTransform>

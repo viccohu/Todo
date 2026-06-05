@@ -2075,14 +2075,19 @@ namespace Memo
 
         private void SubTaskTitle_TextChanged(object sender, TextChangedEventArgs e)
         {
-            _subTaskTitleTimer?.Dispose();
-            _subTaskTitleTimer = new Timer(state =>
+            // 在 Timer 回调中访问 sender/DataContext 可能因控件已卸载而崩溃，
+            // 改为在回调触发时捕获数据
+            if (sender is TextBox tb && tb.DataContext is SubTask subTask)
             {
-                if (sender is TextBox tb && tb.DataContext is SubTask subTask)
+                var subTaskId = subTask.Id;
+                var text = tb.Text;
+
+                _subTaskTitleTimer?.Dispose();
+                _subTaskTitleTimer = new Timer(state =>
                 {
-                    _dbService.UpdateSubTaskTitle(subTask.Id, tb.Text);
-                }
-            }, null, 300, Timeout.Infinite);
+                    _dbService.UpdateSubTaskTitle(subTaskId, text);
+                }, null, 300, Timeout.Infinite);
+            }
         }
 
         private void SubTaskTitle_LostFocus(object sender, RoutedEventArgs e)

@@ -725,10 +725,50 @@
                                 <!-- 备注区（背景框） -->
                                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Margin="0,0,0,12">
                                     <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+
+                                        <!-- 关联记事本行 -->
+                                        <Grid x:Name="LinkedNotepadBar" Grid.Row="0" Height="36" Padding="12,0,12,0" Visibility="Collapsed">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button x:Name="LinkNotepadButton"
+                                                    Click="LinkNotepadButton_Click"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Padding="4,6"
+                                                    HorizontalAlignment="Left"
+                                                    ToolTipService.ToolTip="关联记事本">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <FontIcon Glyph="&#xE71B;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                                    <TextBlock x:Name="LinkNotepadButtonText" Text="关联记事本" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Visibility="Collapsed" x:Name="LinkedNotepadInfo">
+                                                <FontIcon Glyph="&#xE167;" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                <TextBlock x:Name="LinkedNotepadName" Text=""  FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="180"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="2"
+                                                    x:Name="UnlinkNotepadButton"
+                                                    Click="UnlinkNotepadButton_Click"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Padding="8,6"
+                                                    Visibility="Collapsed"
+                                                    ToolTipService.ToolTip="取消关联">
+                                                <FontIcon Glyph="&#xE711;" FontSize="11" Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
+                                            </Button>
+                                        </Grid>
+
                                         <!-- 备注文本框 -->
-                                        <TextBox
-                                                 x:Name="DetailDescription"
-                                                 PlaceholderText="备注"
+                                        <TextBox x:Name="DetailDescription"
+                                                 Grid.Row="1"
+                                                 PlaceholderText=""
                                                  Background="Transparent"
                                                  BorderThickness="0"
                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -744,6 +784,9 @@
                                                 <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
                                                 <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
                                                 <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBackground" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent"/>
+                                                <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent"/>
                                             </TextBox.Resources>
                                         </TextBox>
                                     </Grid>

@@ -183,6 +183,16 @@ namespace Memo
                 SaveCurrentNotepadTab();
             }
 
+            // 如果还有未确认的删除（撤销计时未结束），立即执行删除
+            if (_pendingDeleteTabs.Count > 0)
+            {
+                foreach (var tab in _pendingDeleteTabs)
+                {
+                    _dbService.DeleteNotepadTab(tab.Id);
+                }
+                _pendingDeleteTabs.Clear();
+            }
+
             // 清理桌面固定模式资源
             SaveCompactState();
             _taskCompactWindow?.Close();
@@ -993,6 +1003,10 @@ namespace Memo
 
             _selectedTask = task;
             DetailTitle.Text = task.Title;
+
+            // 加载关联记事本
+            LoadLinkedNotepadTab(task);
+
             // 将描述中的 [title](url) 转为纯标题显示
             var (displayText, links) = StripLinksForDisplay(task.Description ?? "");
             _isUpdatingDescriptionText = true;
@@ -1077,6 +1091,112 @@ namespace Memo
         private void NotifyTaskItemChanged(TaskItem task)
         {
             TaskItemPropertyChanged?.Invoke(task, new System.ComponentModel.PropertyChangedEventArgs("SubTasks"));
+        }
+
+        private void LoadLinkedNotepadTab(TaskItem task)
+        {
+            if (task.LinkedNotepadTabId.HasValue)
+            {
+                var linkedTab = _dbService.GetLinkedNotepadTab(task.Id);
+                if (linkedTab != null)
+                {
+                    LinkedNotepadBar.Visibility = Visibility.Visible;
+                    LinkNotepadButton.Visibility = Visibility.Collapsed;
+                    LinkedNotepadInfo.Visibility = Visibility.Visible;
+                    LinkedNotepadName.Text = $"已关联：{linkedTab.Title}";
+                    UnlinkNotepadButton.Visibility = Visibility.Visible;
+
+                    // 如果备注为空则自动填充关联标签的内容
+                    if (string.IsNullOrWhiteSpace(task.Description) && !string.IsNullOrWhiteSpace(linkedTab.Content))
+                    {
+                        task.Description = linkedTab.Content;
+                        _isUpdatingDescriptionText = true;
+                        DetailDescription.Text = linkedTab.Content;
+                        _isUpdatingDescriptionText = false;
+                    }
+                }
+                else
+                {
+                    // 关联失效，清理
+                    task.LinkedNotepadTabId = null;
+                    _dbService.UnlinkNotepadTab(task.Id);
+                    ResetLinkedNotepadBar();
+                }
+            }
+            else
+            {
+                ResetLinkedNotepadBar();
+            }
+        }
+
+        private void ResetLinkedNotepadBar()
+        {
+            LinkedNotepadBar.Visibility = Visibility.Visible;
+            LinkNotepadButton.Visibility = Visibility.Visible;
+            LinkedNotepadInfo.Visibility = Visibility.Collapsed;
+            LinkedNotepadName.Text = "";
+            UnlinkNotepadButton.Visibility = Visibility.Collapsed;
+        }
+
+        private void LinkNotepadButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedTask == null) return;
+
+            var tabs = _dbService.GetNotepadTabs();
+            if (tabs.Count == 0)
+            {
+                // 没有记事本标签，提示创建
+                return;
+            }
+
+            var menu = new MenuFlyout();
+            foreach (var tab in tabs)
+            {
+                var item = new MenuFlyoutItem
+                {
+                    Text = tab.Title,
+                    Icon = new FontIcon { Glyph = "", FontSize = 14 }
+                };
+                var capturedTab = tab;
+                item.Click += (s, args) =>
+                {
+                    _dbService.LinkNotepadTab(_selectedTask.Id, capturedTab.Id);
+                    _selectedTask.LinkedNotepadTabId = capturedTab.Id;
+
+                    // 将关联标签的内容加载到备注
+                    if (!string.IsNullOrWhiteSpace(capturedTab.Content))
+                    {
+                        _selectedTask.Description = capturedTab.Content;
+                    }
+                    _isUpdatingDescriptionText = true;
+                    DetailDescription.Text = _selectedTask.Description ?? "";
+                    _isUpdatingDescriptionText = false;
+
+                    _dbService.UpdateTask(_selectedTask);
+
+                    // 更新 UI 显示
+                    LinkedNotepadName.Text = $"已关联：{capturedTab.Title}";
+                    LinkNotepadButton.Visibility = Visibility.Collapsed;
+                    LinkedNotepadInfo.Visibility = Visibility.Visible;
+                    UnlinkNotepadButton.Visibility = Visibility.Visible;
+                };
+                menu.Items.Add(item);
+            }
+
+            if (sender is FrameworkElement fe)
+            {
+                menu.ShowAt(fe);
+            }
+        }
+
+        private void UnlinkNotepadButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedTask == null) return;
+
+            _dbService.UnlinkNotepadTab(_selectedTask.Id);
+            _selectedTask.LinkedNotepadTabId = null;
+
+            ResetLinkedNotepadBar();
         }
 
         private void RefreshSelectedTaskDueDateControls()
@@ -1275,6 +1395,26 @@ namespace Memo
                 if (_selectedTask != null)
                 {
                     _dbService.UpdateTask(_selectedTask);
+
+                    // 如果关联了记事本，同步内容到 NotepadTab
+                    if (_selectedTask.LinkedNotepadTabId.HasValue)
+                    {
+                        var linkedTab = _dbService.GetLinkedNotepadTab(_selectedTask.Id);
+                        if (linkedTab != null)
+                        {
+                            linkedTab.Content = _selectedTask.Description ?? "";
+                            _dbService.UpdateNotepadTabContent(linkedTab.Id, linkedTab.Content);
+                            // 如果该标签当前在 NOTEPAD 页面被打开，也更新内存中的对象
+                            foreach (var tab in _notepadTabs)
+                            {
+                                if (tab.Id == linkedTab.Id)
+                                {
+                                    tab.Content = linkedTab.Content;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             };
             _saveDescriptionTimer.Start();
@@ -1873,7 +2013,16 @@ namespace Memo
         {
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
-                AddSubTaskFromInput();
+                if (_selectedTask != null && !string.IsNullOrWhiteSpace(AddSubTaskTextBox.Text))
+                {
+                    var subTask = _dbService.AddSubTask(_selectedTask.Id, AddSubTaskTextBox.Text.Trim());
+                    _selectedTask.SubTasks.Add(subTask);
+                    NotifyTaskItemChanged(_selectedTask);
+
+                    // 继续添加下一条：清空输入框并保持焦点
+                    AddSubTaskTextBox.Text = "";
+                    AddSubTaskTextBox.Focus(FocusState.Programmatic);
+                }
                 e.Handled = true;
             }
             else if (e.Key == Windows.System.VirtualKey.Escape)

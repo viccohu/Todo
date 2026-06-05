@@ -24,7 +24,7 @@ namespace Memo
         private bool _isPreviewMode = true;
 
         // Undo close
-        private NotepadTab? _closedNotepadTab;
+        private List<NotepadTab> _pendingDeleteTabs = new List<NotepadTab>();
         private DispatcherTimer? _closeUndoTimer;
         private int _undoCountdown;
 
@@ -336,10 +336,12 @@ namespace Memo
         private void StartUndoTimer(NotepadTab tab)
         {
             _closeUndoTimer?.Stop();
-            _closedNotepadTab = tab;
+
+            // 加入到待删除队列
+            _pendingDeleteTabs.Add(tab);
             _undoCountdown = 5;
 
-            NotepadUndoText.Text = $"「{tab.Title}」已关闭 · {_undoCountdown}秒后删除";
+            NotepadUndoText.Text = $"已关闭 {_pendingDeleteTabs.Count} 个标签 · {_undoCountdown}秒后删除";
             NotepadUndoBar.Visibility = Visibility.Visible;
 
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -350,14 +352,16 @@ namespace Memo
                 if (_undoCountdown <= 0)
                 {
                     timer.Stop();
-                    if (_closedNotepadTab != null)
-                        _dbService.DeleteNotepadTab(_closedNotepadTab.Id);
-                    _closedNotepadTab = null;
+                    foreach (var t in _pendingDeleteTabs)
+                    {
+                        _dbService.DeleteNotepadTab(t.Id);
+                    }
+                    _pendingDeleteTabs.Clear();
                     NotepadUndoBar.Visibility = Visibility.Collapsed;
                 }
                 else
                 {
-                    NotepadUndoText.Text = $"「{_closedNotepadTab!.Title}」已关闭 · {_undoCountdown}秒后删除";
+                    NotepadUndoText.Text = $"已关闭 {_pendingDeleteTabs.Count} 个标签 · {_undoCountdown}秒后删除";
                 }
             };
             timer.Start();
@@ -365,15 +369,19 @@ namespace Memo
 
         private void NotepadUndoClose_Click(object sender, RoutedEventArgs e)
         {
-            if (_closedNotepadTab == null) return;
+            if (_pendingDeleteTabs.Count == 0) return;
             _closeUndoTimer?.Stop();
 
-            _notepadTabs.Add(_closedNotepadTab);
-            NotepadTabView.TabItems.Add(CreateTabViewItem(_closedNotepadTab));
+            // 恢复所有待删除标签
+            foreach (var tab in _pendingDeleteTabs)
+            {
+                _notepadTabs.Add(tab);
+                NotepadTabView.TabItems.Add(CreateTabViewItem(tab));
+                LogNotepadTab(tab, "UndoClose");
+            }
             NotepadTabView.SelectedIndex = NotepadTabView.TabItems.Count - 1;
-            LogNotepadTab(_closedNotepadTab, "UndoClose");
 
-            _closedNotepadTab = null;
+            _pendingDeleteTabs.Clear();
             NotepadUndoBar.Visibility = Visibility.Collapsed;
         }
 

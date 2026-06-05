@@ -11,15 +11,15 @@
   IgnorableNamespaces="uap rescap systemai com desktop">
 
   <Identity
-    Name="f148eb48-ad41-4f75-92ae-aad6e7b017c5"
-    Publisher="CN=SSSS"
-    Version="1.0.0.0" />
+    Name="Vicco.Memo"
+    Publisher="CN=985F48A7-D563-400E-8E17-8281366D331A"
+    Version="1.0.5.0" />
 
-  <mp:PhoneIdentity PhoneProductId="f148eb48-ad41-4f75-92ae-aad6e7b017c5" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+  <mp:PhoneIdentity PhoneProductId="54a32c10-cf19-4e48-b243-cb9a603804c4" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>Memo</DisplayName>
-    <PublisherDisplayName>SSSS</PublisherDisplayName>
+    <DisplayName>Memo · 待办事项</DisplayName>
+    <PublisherDisplayName>Vicco</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
@@ -29,7 +29,7 @@
   </Dependencies>
 
   <Resources>
-    <Resource Language="x-generate"/>
+    <Resource Language="zh-CN"/>
   </Resources>
 
   <Applications>
@@ -37,12 +37,13 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="Memo"
+        DisplayName="Memo · 待办事项"
         Description="Memo"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"  Square71x71Logo="Assets\SmallTile.png" Square310x310Logo="Assets\LargeTile.png"/>
+        <uap:SplashScreen Image="Assets\SplashScreen.png"/>
       </uap:VisualElements>
       
       <Extensions>

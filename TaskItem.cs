@@ -61,6 +61,7 @@ namespace Memo
         
         public int? ParentTaskId { get; set; }
         public int? ListId { get; set; }
+        public int? LinkedNotepadTabId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.Now;
         private bool _isAutoCompleted;
 

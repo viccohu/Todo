@@ -14,6 +14,8 @@ namespace Memo
         private bool _isChecked;
         private bool _isSelected;
         private bool _isImportant;
+        private bool _isUrgent;
+        private bool _isUrgencyManual;
         private string _title = "";
         private string _description = "";
         private DateTime? _dueDate;
@@ -56,8 +58,12 @@ namespace Memo
                 OnPropertyChanged(nameof(DueDateFullLabel));
                 OnPropertyChanged(nameof(DueUrgencyBackground));
                 OnPropertyChanged(nameof(DateLabelForeground));
+                OnPropertyChanged(nameof(EffectiveIsUrgent));
+                NotifyQuadrantChanged();
             }
         }
+        
+        public int SortOrder { get; set; }
         
         public int? ParentTaskId { get; set; }
         public int? ListId { get; set; }
@@ -111,8 +117,47 @@ namespace Memo
                 if (_isImportant == value) return;
                 _isImportant = value;
                 OnPropertyChanged();
+                NotifyQuadrantChanged();
             }
         }
+
+        public bool IsUrgent
+        {
+            get => _isUrgent;
+            set
+            {
+                if (_isUrgent == value) return;
+                _isUrgent = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EffectiveIsUrgent));
+                NotifyQuadrantChanged();
+            }
+        }
+
+        public bool IsUrgencyManual
+        {
+            get => _isUrgencyManual;
+            set
+            {
+                if (_isUrgencyManual == value) return;
+                _isUrgencyManual = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EffectiveIsUrgent));
+                NotifyQuadrantChanged();
+            }
+        }
+
+        public bool EffectiveIsUrgent => IsUrgencyManual ? IsUrgent : ComputeAutoUrgency();
+
+        public TaskQuadrant Quadrant => (IsImportant, EffectiveIsUrgent) switch
+        {
+            (true, true) => TaskQuadrant.Q1_ImportantUrgent,
+            (true, false) => TaskQuadrant.Q2_ImportantNotUrgent,
+            (false, true) => TaskQuadrant.Q3_UrgentNotImportant,
+            _ => TaskQuadrant.Q4_NotImportantNotUrgent,
+        };
+
+        public string QuadrantLabel => Quadrant.GetShortLabel();
 
         public string DueDateDisplay => GetFriendlyDateText(DueDate, "今天");
         
@@ -158,11 +203,11 @@ namespace Memo
             }
         }
 
-        public SolidColorBrush DateLabelForeground => IsUrgent
+        public SolidColorBrush DateLabelForeground => IsDueDateVisuallyUrgent
             ? (SolidColorBrush)Application.Current.Resources["TaskUrgentForegroundBrush"]
             : (SolidColorBrush)Application.Current.Resources["TaskNormalForegroundBrush"];
 
-        private bool IsUrgent
+        private bool IsDueDateVisuallyUrgent
         {
             get
             {
@@ -199,6 +244,31 @@ namespace Memo
             OnPropertyChanged(nameof(CreatedAtDisplay));
             OnPropertyChanged(nameof(CreatedAtFullLabel));
             OnPropertyChanged(nameof(DateLabelForeground));
+            OnPropertyChanged(nameof(EffectiveIsUrgent));
+            NotifyQuadrantChanged();
+        }
+
+        public bool ComputeAutoUrgency()
+        {
+            if (IsChecked) return false;
+            if (!DueDate.HasValue) return false;
+            var d = DueDate.Value.Date;
+            var today = DateTime.Today;
+            if (d < today) return true;
+
+            var todayDow = (int)today.DayOfWeek;
+            var mondayOffset = todayDow == 0 ? -6 : 1 - todayDow;
+            var thisMonday = today.AddDays(mondayOffset);
+            var thisSunday = thisMonday.AddDays(6);
+            if (d >= thisMonday && d <= thisSunday) return true;
+
+            return false;
+        }
+
+        private void NotifyQuadrantChanged()
+        {
+            OnPropertyChanged(nameof(Quadrant));
+            OnPropertyChanged(nameof(QuadrantLabel));
         }
 
         private static string GetChineseDayOfWeek(DayOfWeek day) => day switch

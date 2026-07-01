@@ -73,17 +73,23 @@
                             <ImageIcon Source="ms-appx:///Assets/icons/white/记事本.svg" />
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
-                    
-                    <NavigationViewItem Content="重要任务" Tag="Important">
+
+                    <NavigationViewItem x:Name="TasksNavItem" Content="任务" Tag="Matrix" IsExpanded="True">
                         <NavigationViewItem.Icon>
-                            <ImageIcon Source="ms-appx:///Assets/icons/white/重要任务.svg" />
+                            <ImageIcon Source="ms-appx:///Assets/icons/white/任务列表.svg" />
                         </NavigationViewItem.Icon>
-                    </NavigationViewItem>
-                    
-                    <NavigationViewItem x:Name="RecurringNavItem" Content="例行任务" Tag="Recurring" IsExpanded="True">
-                        <NavigationViewItem.Icon>
-                            <ImageIcon Source="ms-appx:///Assets/icons/white/例行任务.svg"/>
-                        </NavigationViewItem.Icon>
+                        <NavigationViewItem.MenuItems>
+                            <NavigationViewItem Content="即时任务" Tag="Important">
+                                <NavigationViewItem.Icon>
+                                    <ImageIcon Source="ms-appx:///Assets/icons/white/重要任务.svg" />
+                                </NavigationViewItem.Icon>
+                            </NavigationViewItem>
+                            <NavigationViewItem x:Name="RecurringNavItem" Content="例行任务" Tag="Recurring" IsExpanded="True">
+                                <NavigationViewItem.Icon>
+                                    <ImageIcon Source="ms-appx:///Assets/icons/white/例行任务.svg"/>
+                                </NavigationViewItem.Icon>
+                            </NavigationViewItem>
+                        </NavigationViewItem.MenuItems>
                     </NavigationViewItem>
                     
                     <NavigationViewItemSeparator/>
@@ -149,8 +155,8 @@
 
                         <!-- 页面标题 -->
                         <StackPanel x:Name="PageHeader" Grid.Row="0" Orientation="Horizontal" Spacing="15" Margin="40,20,40,20">
-                            <ImageIcon x:Name="PageIcon" Source="ms-appx:///Assets/icons/white/重要任务.svg" Width="28" Height="28"/>
-                            <TextBlock x:Name="PageTitle" Text="重要任务" FontSize="28" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                            <ImageIcon x:Name="PageIcon" Source="ms-appx:///Assets/icons/white/任务列表.svg" Width="28" Height="28"/>
+                            <TextBlock x:Name="PageTitle" Text="任务" FontSize="28" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                         </StackPanel>
 
                         <!-- 记事本页面 -->
@@ -220,9 +226,8 @@
 
                             <!-- 编辑器（IsReadOnly 切换预览/编辑） -->
                             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                                <TextBox x:Name="NotepadEditor"
+                                <local:NotepadEditTextBox x:Name="NotepadEditor"
                                          TextWrapping="Wrap"
-                                         Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          VerticalAlignment="Stretch"
                                          HorizontalAlignment="Stretch"
                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -230,7 +235,6 @@
                                          BorderThickness="0"
                                          Margin="0,0,0,0"
                                          Padding="24,8,24,8"
-                                         KeyDown="NotepadEditor_KeyDown"
                                          TextChanged="NotepadEditor_TextChanged">
                                     <TextBox.Resources>
                                         <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorTertiary}"/>
@@ -240,10 +244,11 @@
                                         <SolidColorBrush x:Key="TextControlBackground" Color="{ThemeResource SolidBackgroundFillColorBase}"/>
                                         <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="{ThemeResource SolidBackgroundFillColorBase}"/>
                                         <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="{ThemeResource SolidBackgroundFillColorBase}"/>
-                                        <SolidColorBrush x:Key="TextControlForeground" Color="{ThemeResource TextFillColorPrimary}"/>
-                                        <SolidColorBrush x:Key="TextControlForegroundFocused" Color="{ThemeResource TextFillColorPrimary}"/>
+                                        <SolidColorBrush x:Key="TextControlForeground" Color="{ThemeResource TextFillColorSecondary}"/>
+                                        <SolidColorBrush x:Key="TextControlForegroundFocused" Color="{ThemeResource TextFillColorSecondary}"/>
+                                        <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="{ThemeResource TextFillColorSecondary}"/>
                                     </TextBox.Resources>
-                                </TextBox>
+                                </local:NotepadEditTextBox>
                             </ScrollViewer>
 
                             <!-- 误关闭恢复提示 -->
@@ -257,6 +262,198 @@
                                     恢复
                                 </Button>
                             </Grid>
+                        </Grid>
+
+                        <!-- 四象限矩阵 -->
+                        <Grid x:Name="MatrixContent" Grid.Row="1" Visibility="Collapsed" Padding="24,0,24,12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Q1 重要且紧急 -->
+                            <Border Grid.Row="0" Grid.Column="0" Margin="0,0,6,6"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <Border Grid.Row="0"
+                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                            BorderThickness="3,0,0,0"
+                                            Padding="10,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Q1 · 重要且紧急" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock x:Name="MatrixQ1Count" Text="0" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                <TextBlock Text="立即处理" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                    <ScrollViewer Grid.Row="1" Padding="8">
+                                        <ItemsControl x:Name="MatrixQ1List" ItemsSource="{x:Bind MatrixQ1Tasks, Mode=OneWay}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="local:TaskItem">
+                                                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6"
+                                                            Height="48" Margin="0,0,0,6" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                            PointerPressed="MatrixTask_PointerPressed">
+                                                        <Grid Margin="10,0">
+                                                            <TextBlock Text="{x:Bind Title}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{x:Bind DueDateShortDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                    <TextBlock x:Name="MatrixQ1Empty" Grid.Row="1" Text="暂无任务" Visibility="Collapsed"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
+                                </Grid>
+                            </Border>
+
+                            <!-- Q2 重要不紧急 -->
+                            <Border Grid.Row="0" Grid.Column="1" Margin="6,0,0,6"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <Border Grid.Row="0"
+                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                            BorderBrush="{ThemeResource SystemFillColorAttentionBrush}"
+                                            BorderThickness="3,0,0,0"
+                                            Padding="10,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Q2 · 重要不紧急" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock x:Name="MatrixQ2Count" Text="0" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                <TextBlock Text="计划安排" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                    <ScrollViewer Grid.Row="1" Padding="8">
+                                        <ItemsControl x:Name="MatrixQ2List" ItemsSource="{x:Bind MatrixQ2Tasks, Mode=OneWay}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="local:TaskItem">
+                                                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6"
+                                                            Height="48" Margin="0,0,0,6" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                            PointerPressed="MatrixTask_PointerPressed">
+                                                        <Grid Margin="10,0">
+                                                            <TextBlock Text="{x:Bind Title}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{x:Bind DueDateShortDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                    <TextBlock x:Name="MatrixQ2Empty" Grid.Row="1" Text="暂无任务" Visibility="Collapsed"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
+                                </Grid>
+                            </Border>
+
+                            <!-- Q3 紧急不重要 -->
+                            <Border Grid.Row="1" Grid.Column="0" Margin="0,6,6,0"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <Border Grid.Row="0"
+                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                            BorderBrush="{ThemeResource SystemFillColorCautionBrush}"
+                                            BorderThickness="3,0,0,0"
+                                            Padding="10,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Q3 · 紧急不重要" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock x:Name="MatrixQ3Count" Text="0" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                <TextBlock Text="快速处理" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                    <ScrollViewer Grid.Row="1" Padding="8">
+                                        <ItemsControl x:Name="MatrixQ3List" ItemsSource="{x:Bind MatrixQ3Tasks, Mode=OneWay}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="local:TaskItem">
+                                                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6"
+                                                            Height="48" Margin="0,0,0,6" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                            PointerPressed="MatrixTask_PointerPressed">
+                                                        <Grid Margin="10,0">
+                                                            <TextBlock Text="{x:Bind Title}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{x:Bind DueDateShortDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                    <TextBlock x:Name="MatrixQ3Empty" Grid.Row="1" Text="暂无任务" Visibility="Collapsed"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
+                                </Grid>
+                            </Border>
+
+                            <!-- Q4 可暂缓 -->
+                            <Border Grid.Row="1" Grid.Column="1" Margin="6,6,0,0"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <Border Grid.Row="0"
+                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                            BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                            BorderThickness="3,0,0,0"
+                                            Padding="10,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Q4 · 可暂缓" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock x:Name="MatrixQ4Count" Text="0" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                <TextBlock Text="低优先级" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                    <ScrollViewer Grid.Row="1" Padding="8">
+                                        <ItemsControl x:Name="MatrixQ4List" ItemsSource="{x:Bind MatrixQ4Tasks, Mode=OneWay}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="local:TaskItem">
+                                                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6"
+                                                            Height="48" Margin="0,0,0,6" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                            PointerPressed="MatrixTask_PointerPressed">
+                                                        <Grid Margin="10,0">
+                                                            <TextBlock Text="{x:Bind Title}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{x:Bind DueDateShortDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                    <TextBlock x:Name="MatrixQ4Empty" Grid.Row="1" Text="暂无任务" Visibility="Collapsed"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
+                                </Grid>
+                            </Border>
                         </Grid>
 
                         <!-- 任务列表 ScrollView -->
@@ -314,7 +511,7 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
-                                <Button x:Name="CompletedButton" 
+                                <Button x:Name="CompletedButton"
                                         Margin="0,10,0,10" 
                                         Background="{ThemeResource ControlFillColorDefaultBrush}"
                                         BorderThickness="0" 
@@ -625,10 +822,11 @@
                                         <ItemsControl x:Name="SubTasksList">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Grid Margin="0,0,0,0">
+                                                    <Grid Margin="0,0,0,0" MinHeight="28">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="32"/>
                                                             <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="Auto"/>
                                                         </Grid.ColumnDefinitions>
                                                         <CheckBox Grid.Column="0"
@@ -636,8 +834,8 @@
                                                                   Click="SubTaskCheckBox_Click"
                                                                   RightTapped="SubTask_RightTapped"/>
                                                         <TextBox Grid.Column="1"
-                                                                 Text="{Binding Title, Mode=TwoWay}" 
-                                                                 Background="Transparent" 
+                                                                 Text="{Binding Title, Mode=TwoWay}"
+                                                                 Background="Transparent"
                                                                  BorderThickness="0"
                                                                  FontSize="13"
                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -676,7 +874,13 @@
                                                                 </Style>
                                                             </TextBox.Style>
                                                         </TextBox>
-                                                        <Button Grid.Column="2"
+                                                        <TextBlock Grid.Column="2"
+                                                                   Text="{Binding CreatedAtDisplay}"
+                                                                   FontSize="11"
+                                                                   Foreground="{ThemeResource TextFillColorDisabledBrush}"
+                                                                   VerticalAlignment="Center"
+                                                                   Margin="8,0,0,0"/>
+                                                        <Button Grid.Column="3"
                                                                 Click="DeleteSubTask_Click"
                                                                 Background="Transparent"
                                                                 BorderThickness="0"
@@ -728,7 +932,7 @@
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
 
                                         <!-- 关联记事本行 -->
@@ -775,9 +979,11 @@
                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                  AcceptsReturn="True"
                                                  TextWrapping="Wrap"
-                                                 Height="100"
-                                                 Padding="12,12,12,12"
+                                                 MinHeight="36"
+                                                 Height="36"
+                                                 Padding="12,8,12,8"
                                                  TextChanged="DetailDescription_TextChanged"
+                                                 SizeChanged="DetailDescription_SizeChanged"
                                                  KeyDown="DetailDescription_KeyDown"
                                                  RightTapped="DetailDescription_RightTapped">
                                             <TextBox.Resources>
@@ -975,19 +1181,78 @@
                                             </Button>
                                         </Grid>
                                         
-                                        <!-- 标记为重要 -->
-                                        <Grid Height="48" Padding="24,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
-                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                <FontIcon Glyph="&#xE8C8;" FontSize="16" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                                <TextBlock Text="标记为重要" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="14" VerticalAlignment="Center"/>
+                                        <!-- 优先级 -->
+                                        <StackPanel Padding="12,8,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Spacing="8">
+                                            <TextBlock Text="优先级" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                            <Grid Height="92" Margin="0,0,0,4">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="18"/>
+                                                    <RowDefinition Height="*"/>
+                                                    <RowDefinition Height="*"/>
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="32"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Row="0" Grid.Column="1" Text="紧急" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+                                                <TextBlock Grid.Row="0" Grid.Column="2" Text="不紧急" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="重要" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="次要" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                <Button x:Name="QuadrantQ1Button" Grid.Row="1" Grid.Column="1" Tag="Q1" Click="QuadrantPicker_Click"
+                                                        Content="Q1" FontSize="11" MinHeight="32" Margin="2" Padding="4,2"
+                                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                                                <Button x:Name="QuadrantQ2Button" Grid.Row="1" Grid.Column="2" Tag="Q2" Click="QuadrantPicker_Click"
+                                                        Content="Q2" FontSize="11" MinHeight="32" Margin="2" Padding="4,2"
+                                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                                                <Button x:Name="QuadrantQ3Button" Grid.Row="2" Grid.Column="1" Tag="Q3" Click="QuadrantPicker_Click"
+                                                        Content="Q3" FontSize="11" MinHeight="32" Margin="2" Padding="4,2"
+                                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                                                <Button x:Name="QuadrantQ4Button" Grid.Row="2" Grid.Column="2" Tag="Q4" Click="QuadrantPicker_Click"
+                                                        Content="Q4" FontSize="11" MinHeight="32" Margin="2" Padding="4,2"
+                                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                                            </Grid>
+
+                                            <Grid Height="36" ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="20"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="20"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="重要" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                                <Slider x:Name="ImportantSlider" Grid.Column="1"
+                                                        Minimum="0" Maximum="1" StepFrequency="1"
+                                                        VerticalAlignment="Center"
+                                                        ValueChanged="ImportantSlider_ValueChanged"/>
+                                                <TextBlock x:Name="ImportantLevelText" Grid.Column="2" Text="低" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                <TextBlock Grid.Column="3" Text="紧急" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                                <Slider x:Name="UrgentSlider" Grid.Column="4"
+                                                        Minimum="0" Maximum="1" StepFrequency="1"
+                                                        VerticalAlignment="Center"
+                                                        ValueChanged="UrgentSlider_ValueChanged"/>
+                                                <TextBlock x:Name="UrgentLevelText" Grid.Column="5" Text="低" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                            </Grid>
+
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock x:Name="UrgencyAutoHint" Text="本周内截止视为紧急" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
+                                                <Button x:Name="ResetUrgencyAutoButton"
+                                                        Content="恢复自动"
+                                                        Click="ResetUrgencyAuto_Click"
+                                                        Visibility="Collapsed"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Padding="0"
+                                                        FontSize="12"
+                                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
                                             </StackPanel>
-                                            <ToggleSwitch x:Name="ImportantToggle" 
-                                                          OnContent="" OffContent=""
-                                                          MinWidth="0" Width="50"
-                                                          HorizontalAlignment="Right"
-                                                          VerticalAlignment="Center"
-                                                          Toggled="ImportantToggle_Toggled"/>
-                                        </Grid>
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>

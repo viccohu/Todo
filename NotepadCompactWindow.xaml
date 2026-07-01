@@ -71,9 +71,8 @@
 
                 <!-- 内容区（IsReadOnly 切换预览/编辑） -->
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                    <TextBox x:Name="Editor"
+                    <local:NotepadEditTextBox x:Name="Editor"
                              TextWrapping="Wrap"
-                             Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              MinHeight="200"
                              VerticalAlignment="Stretch"
                              HorizontalAlignment="Stretch"
@@ -81,7 +80,6 @@
                              Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                              BorderThickness="0"
                              Padding="12,8,12,8"
-                             KeyDown="Editor_KeyDown"
                              TextChanged="Editor_TextChanged">
                         <TextBox.Resources>
                             <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
@@ -90,11 +88,12 @@
                             <SolidColorBrush x:Key="TextControlBackground" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
                             <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
                             <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
-                            <SolidColorBrush x:Key="TextControlForeground" Color="{ThemeResource TextFillColorPrimary}"/>
-                            <SolidColorBrush x:Key="TextControlForegroundFocused" Color="{ThemeResource TextFillColorPrimary}"/>
+                            <SolidColorBrush x:Key="TextControlForeground" Color="{ThemeResource TextFillColorSecondary}"/>
+                            <SolidColorBrush x:Key="TextControlForegroundFocused" Color="{ThemeResource TextFillColorSecondary}"/>
+                            <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="{ThemeResource TextFillColorSecondary}"/>
                             <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorTertiary}"/>
                         </TextBox.Resources>
-                    </TextBox>
+                    </local:NotepadEditTextBox>
                 </ScrollViewer>
             </Grid>
         </ScrollViewer>

@@ -64,9 +64,15 @@
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
                                                             <Grid MinHeight="26" Margin="0,2,0,0">
-                                                                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="SubTaskCheckBox_Click">
                                                                     <TextBlock Text="{Binding Title}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
                                                                 </CheckBox>
+                                                                <TextBlock Grid.Column="2" Text="{Binding CreatedAtDisplay}" FontSize="10" Foreground="{ThemeResource TextFillColorDisabledBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                             </Grid>
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
@@ -125,12 +131,18 @@
                                                         <ItemsControl.ItemTemplate>
                                                             <DataTemplate>
                                                                 <Grid MinHeight="26" Margin="0,2,0,0">
-                                                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="Auto"/>
+                                                                        <ColumnDefinition Width="*"/>
+                                                                        <ColumnDefinition Width="Auto"/>
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="SubTaskCheckBox_Click">
                                                                         <TextBlock Text="{Binding Title}"
                                                                                    TextDecorations="Strikethrough"
                                                                                    Foreground="{ThemeResource TextFillColorDisabledBrush}"
                                                                                    FontSize="12"/>
                                                                     </CheckBox>
+                                                                    <TextBlock Grid.Column="2" Text="{Binding CreatedAtDisplay}" FontSize="10" Foreground="{ThemeResource TextFillColorDisabledBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                                 </Grid>
                                                             </DataTemplate>
                                                         </ItemsControl.ItemTemplate>

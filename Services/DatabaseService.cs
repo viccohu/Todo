@@ -10,6 +10,9 @@ namespace Memo.Services
 {
     public class DatabaseService
     {
+        private const string TaskSelectColumns =
+            "Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId, IsUrgent, IsUrgencyManual, SortOrder";
+
         private readonly string _dbPath;
 
         public DatabaseService()
@@ -82,9 +85,12 @@ namespace Memo.Services
                     DueDate TEXT,
                     IsChecked INTEGER NOT NULL DEFAULT 0,
                     IsImportant INTEGER NOT NULL DEFAULT 0,
+                    IsUrgent INTEGER NOT NULL DEFAULT 0,
+                    IsUrgencyManual INTEGER NOT NULL DEFAULT 0,
                     IsAutoCompleted INTEGER NOT NULL DEFAULT 0,
                     ParentTaskId INTEGER,
                     ListId INTEGER,
+                    SortOrder INTEGER NOT NULL DEFAULT 0,
                     CreatedAt TEXT NOT NULL,
                     CompletedAt TEXT,
                     FOREIGN KEY (ParentTaskId) REFERENCES Tasks(Id),
@@ -194,6 +200,21 @@ namespace Memo.Services
             if (!columns.Contains("LinkedNotepadTabId"))
             {
                 ExecuteAlter(connection, "ALTER TABLE Tasks ADD COLUMN LinkedNotepadTabId INTEGER");
+            }
+
+            if (!columns.Contains("IsUrgent"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Tasks ADD COLUMN IsUrgent INTEGER NOT NULL DEFAULT 0");
+            }
+
+            if (!columns.Contains("IsUrgencyManual"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Tasks ADD COLUMN IsUrgencyManual INTEGER NOT NULL DEFAULT 0");
+            }
+
+            if (!columns.Contains("SortOrder"))
+            {
+                ExecuteAlter(connection, "ALTER TABLE Tasks ADD COLUMN SortOrder INTEGER NOT NULL DEFAULT 0");
             }
         }
 
@@ -511,6 +532,76 @@ namespace Memo.Services
             command.ExecuteNonQuery();
         }
 
+        public void UpdateTaskUrgency(int id, bool isUrgent, bool isUrgencyManual)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = @"UPDATE Tasks
+                                   SET IsUrgent = $isUrgent,
+                                       IsUrgencyManual = $isUrgencyManual
+                                   WHERE Id = $id";
+            command.Parameters.AddWithValue("$isUrgent", isUrgent ? 1 : 0);
+            command.Parameters.AddWithValue("$isUrgencyManual", isUrgencyManual ? 1 : 0);
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+
+        public void UpdateTaskPriority(int id, bool isImportant, bool isUrgent, bool isUrgencyManual)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = @"UPDATE Tasks
+                                   SET IsImportant = $isImportant,
+                                       IsUrgent = $isUrgent,
+                                       IsUrgencyManual = $isUrgencyManual
+                                   WHERE Id = $id";
+            command.Parameters.AddWithValue("$isImportant", isImportant ? 1 : 0);
+            command.Parameters.AddWithValue("$isUrgent", isUrgent ? 1 : 0);
+            command.Parameters.AddWithValue("$isUrgencyManual", isUrgencyManual ? 1 : 0);
+            command.Parameters.AddWithValue("$id", id);
+            command.ExecuteNonQuery();
+        }
+
+        public List<TaskItem> GetActiveTasksForMatrix()
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+
+            var tasks = new List<TaskItem>();
+            var command = connection.CreateCommand();
+            command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE IsChecked = 0 ORDER BY CreatedAt DESC";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                tasks.Add(ReadTaskItem(reader));
+            }
+            return tasks;
+        }
+
+        public void UpdateTaskSortOrders(IEnumerable<(int taskId, int sortOrder)> orders)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE Tasks SET SortOrder = $sortOrder WHERE Id = $id";
+            var sortParam = command.CreateParameter();
+            sortParam.ParameterName = "$sortOrder";
+            command.Parameters.Add(sortParam);
+            var idParam = command.CreateParameter();
+            idParam.ParameterName = "$id";
+            command.Parameters.Add(idParam);
+
+            foreach (var (taskId, sortOrder) in orders)
+            {
+                sortParam.Value = sortOrder;
+                idParam.Value = taskId;
+                command.ExecuteNonQuery();
+            }
+        }
+
         public List<TaskItem> GetImportantTasks()
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
@@ -518,7 +609,7 @@ namespace Memo.Services
 
             var tasks = new List<TaskItem>();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks WHERE IsImportant = 1 ORDER BY CreatedAt DESC";
+            command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE IsImportant = 1 ORDER BY CreatedAt DESC";
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -538,13 +629,13 @@ namespace Memo.Services
 
             if (isChecked.HasValue)
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks WHERE ListId = $listId AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE ListId = $listId AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$listId", listId);
                 command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
             }
             else
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks WHERE ListId = $listId ORDER BY CreatedAt DESC";
+                command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE ListId = $listId ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$listId", listId);
             }
 
@@ -581,12 +672,12 @@ namespace Memo.Services
 
             if (isChecked.HasValue)
             {
-                command.CommandText = $"SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks WHERE ListId IN ({placeholders}) AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE ListId IN ({placeholders}) AND IsChecked = $isChecked ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
             }
             else
             {
-                command.CommandText = $"SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks WHERE ListId IN ({placeholders}) ORDER BY CreatedAt DESC";
+                command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE ListId IN ({placeholders}) ORDER BY CreatedAt DESC";
             }
 
             for (int i = 0; i < listIds.Count; i++)
@@ -670,12 +761,12 @@ namespace Memo.Services
 
             if (isChecked.HasValue)
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks WHERE IsChecked = $isChecked ORDER BY CreatedAt DESC";
+                command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE IsChecked = $isChecked ORDER BY CreatedAt DESC";
                 command.Parameters.AddWithValue("$isChecked", isChecked.Value ? 1 : 0);
             }
             else
             {
-                command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks ORDER BY CreatedAt DESC";
+                command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks ORDER BY CreatedAt DESC";
             }
 
             using var reader = command.ExecuteReader();
@@ -717,7 +808,7 @@ namespace Memo.Services
             var tasks = new List<TaskItem>();
             var command = connection.CreateCommand();
             var today = DateTime.Today;
-            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks WHERE IsChecked = 0 AND DueDate IS NOT NULL ORDER BY CreatedAt";
+            command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE IsChecked = 0 AND DueDate IS NOT NULL ORDER BY CreatedAt";
             System.Diagnostics.Debug.WriteLine($"GetOverdueUncheckedTasks: today={today:yyyy-MM-dd}");
 
             using var reader = command.ExecuteReader();
@@ -1008,7 +1099,7 @@ namespace Memo.Services
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, Title, Description, DueDate, IsChecked, IsImportant, ParentTaskId, ListId, CreatedAt, CompletedAt, IsAutoCompleted, LinkedNotepadTabId FROM Tasks WHERE Id = $id";
+            command.CommandText = $"SELECT {TaskSelectColumns} FROM Tasks WHERE Id = $id";
             command.Parameters.AddWithValue("$id", id);
 
             using var reader = command.ExecuteReader();
@@ -1207,7 +1298,10 @@ namespace Memo.Services
                 CreatedAt = DateTime.Parse(reader.GetString(8)),
                 CompletedAt = reader.IsDBNull(9) ? null : DateTime.Parse(reader.GetString(9)),
                 IsAutoCompleted = reader.IsDBNull(10) ? false : reader.GetInt32(10) == 1,
-                LinkedNotepadTabId = reader.IsDBNull(11) ? null : reader.GetInt32(11)
+                LinkedNotepadTabId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
+                IsUrgent = reader.FieldCount > 12 && !reader.IsDBNull(12) && reader.GetInt32(12) == 1,
+                IsUrgencyManual = reader.FieldCount > 13 && !reader.IsDBNull(13) && reader.GetInt32(13) == 1,
+                SortOrder = reader.FieldCount > 14 && !reader.IsDBNull(14) ? reader.GetInt32(14) : 0
             };
         }
 
@@ -1402,8 +1496,10 @@ namespace Memo.Services
             try
             {
                 cmd.CommandText = @"
-                    INSERT INTO Tasks (Title, Description, DueDate, IsChecked, IsImportant, LinkedNotepadTabId, CreatedAt)
-                    SELECT s.Title, s.Description, s.DueDate, s.IsChecked, s.IsImportant, s.LinkedNotepadTabId, s.CreatedAt
+                    INSERT INTO Tasks (Title, Description, DueDate, IsChecked, IsImportant, IsUrgent, IsUrgencyManual, LinkedNotepadTabId, CreatedAt)
+                    SELECT s.Title, s.Description, s.DueDate, s.IsChecked, s.IsImportant,
+                           COALESCE(s.IsUrgent, 0), COALESCE(s.IsUrgencyManual, 0),
+                           s.LinkedNotepadTabId, s.CreatedAt
                     FROM src.Tasks s
                     WHERE NOT EXISTS (SELECT 1 FROM Tasks t WHERE t.Title = s.Title)";
                 int n = cmd.ExecuteNonQuery();

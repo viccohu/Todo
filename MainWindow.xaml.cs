@@ -38,6 +38,8 @@ namespace Memo
         private DispatcherTimer? _saveTitleTimer;
         private DispatcherTimer? _saveDescriptionTimer;
         private bool _isUpdatingDescriptionText;
+        private const double DescriptionContentHeight = 100;
+        private const double DescriptionLinkedMaxHeight = 300;
         // 链接追踪: 显示文本中标题的位置 → URL
         private List<(string title, string url, int displayIndex, int displayLength)> _descriptionLinks = new();
         private string _previousDescriptionText = "";
@@ -47,7 +49,7 @@ namespace Memo
         private bool _isAnimating = false;
         private Storyboard? _drawerStoryboard;
 
-        private string _currentNavTag = "Important";
+        private string _currentNavTag = "Matrix";
         private int? _currentListId = null;
         private DateTimeOffset? _pendingDueDate = null;
         private RecurrenceType _pendingRecurrence = RecurrenceType.None;
@@ -168,7 +170,9 @@ namespace Memo
             // 恢复上次的固定模式状态（必须在 NavView.SelectedItem 之前，避免被覆盖）
             RestoreCompactState();
 
-            NavView.SelectedItem = NavView.MenuItems[1];
+            NavView.SelectedItem = TasksNavItem;
+            if (_currentNavTag == "Matrix")
+                ShowMatrixContent();
 
             UpdatePinButtonState();
 
@@ -277,11 +281,12 @@ namespace Memo
                 {
                     CompletedTasks.Add(task);
                 }
-                else
-                {
-                    Tasks.Add(task);
-                }
             }
+
+            var activeTasks = allTasks.Where(t => !t.IsChecked).ToList();
+            SortActiveTasks(activeTasks);
+            foreach (var task in activeTasks)
+                Tasks.Add(task);
 
             TasksList.ItemsSource = Tasks;
             CompletedTasksList.ItemsSource = CompletedTasks;
@@ -605,10 +610,10 @@ namespace Memo
                 LoadCustomGroups();
                 if (_currentListId == list.Id)
                 {
-                    _currentNavTag = "Important";
+                    _currentNavTag = "Matrix";
                     _currentListId = null;
-                    NavView.SelectedItem = NavView.MenuItems[1];
-                    LoadTasksForCurrentNav();
+                    NavView.SelectedItem = TasksNavItem;
+                    ShowMatrixContent();
                     UpdatePageHeader();
                 }
             }
@@ -797,10 +802,16 @@ namespace Memo
                         break;
                     case "Important":
                         _currentNavTag = "Important";
-                        PageTitle.Text = "重要任务";
+                        PageTitle.Text = "即时任务";
                     PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Important));
                         ShowTaskListContent();
                         LoadTasksForCurrentNav();
+                        break;
+                    case "Matrix":
+                        _currentNavTag = "Matrix";
+                        PageTitle.Text = "任务";
+                        PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.TaskList));
+                        ShowMatrixContent();
                         break;
                     case "Daily":
                         _currentNavTag = "Daily";
@@ -838,8 +849,12 @@ namespace Memo
                     PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Notepad));
                     break;
                 case "Important":
-                    PageTitle.Text = "重要任务";
+                    PageTitle.Text = "即时任务";
                     PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.Important));
+                    break;
+                case "Matrix":
+                    PageTitle.Text = "任务";
+                    PageIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri(AppIcons.TaskList));
                     break;
                 case "Daily":
                     PageTitle.Text = _dbService.GetBuiltInListByCategory(ListCategory.Daily)?.Name ?? "日常";
@@ -911,24 +926,27 @@ namespace Memo
         {
             var pointerPoint = e.GetCurrentPoint(sender as UIElement);
             if (!pointerPoint.Properties.IsLeftButtonPressed)
-            {
                 return;
-            }
-            
-            if (sender is Border border && border.DataContext is TaskItem task)
-            {
-                if (_selectedTask == task)
-                {
-                    CloseDrawer();
-                }
-                else
-                {
-                    _selectedTask = task;
-                    ShowDrawer(task);
-                    UpdateTaskItemSelection(task);
-                }
+
+            if (OpenTaskDrawerFromSender(sender))
                 e.Handled = true;
+        }
+
+        private bool OpenTaskDrawerFromSender(object sender)
+        {
+            if (sender is not Border border || border.DataContext is not TaskItem task)
+                return false;
+
+            if (_selectedTask == task)
+                CloseDrawer();
+            else
+            {
+                _selectedTask = task;
+                ShowDrawer(task);
+                UpdateTaskItemSelection(task);
             }
+
+            return true;
         }
 
         private void TaskItem_PointerEntered(object sender, PointerRoutedEventArgs e)
@@ -1003,6 +1021,8 @@ namespace Memo
 
             _selectedTask = task;
             DetailTitle.Text = task.Title;
+            DetailCheckBox.IsChecked = task.IsChecked;
+            RefreshPriorityControls(task);
 
             // 加载关联记事本
             LoadLinkedNotepadTab(task);
@@ -1047,7 +1067,8 @@ namespace Memo
 
             DetailCalendarView.Visibility = Visibility.Collapsed;
             ReminderSettingsPanel.Visibility = Visibility.Collapsed;
-            ImportantToggle.IsOn = task.IsImportant;
+
+            ScheduleAdjustDetailDescriptionHeight();
 
             if (_isDrawerOpen)
             {
@@ -1136,6 +1157,7 @@ namespace Memo
             LinkedNotepadInfo.Visibility = Visibility.Collapsed;
             LinkedNotepadName.Text = "";
             UnlinkNotepadButton.Visibility = Visibility.Collapsed;
+            AdjustDetailDescriptionHeight();
         }
 
         private void LinkNotepadButton_Click(object sender, RoutedEventArgs e)
@@ -1179,6 +1201,7 @@ namespace Memo
                     LinkNotepadButton.Visibility = Visibility.Collapsed;
                     LinkedNotepadInfo.Visibility = Visibility.Visible;
                     UnlinkNotepadButton.Visibility = Visibility.Visible;
+                    ScheduleAdjustDetailDescriptionHeight();
                 };
                 menu.Items.Add(item);
             }
@@ -1418,8 +1441,82 @@ namespace Memo
                 }
             };
             _saveDescriptionTimer.Start();
+
+            if (_selectedTask.LinkedNotepadTabId.HasValue)
+                ScheduleAdjustDetailDescriptionHeight();
         }
 
+        private void DetailDescription_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_selectedTask?.LinkedNotepadTabId.HasValue == true &&
+                Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > 0.5)
+            {
+                ScheduleAdjustDetailDescriptionHeight();
+            }
+        }
+
+        private void ScheduleAdjustDetailDescriptionHeight()
+        {
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, AdjustDetailDescriptionHeight);
+        }
+
+        private void AdjustDetailDescriptionHeight()
+        {
+            var text = DetailDescription.Text ?? "";
+            var isEmpty = string.IsNullOrWhiteSpace(text);
+            var minHeight = GetDescriptionMinHeight();
+
+            if (_selectedTask?.LinkedNotepadTabId == null)
+            {
+                DetailDescription.Height = isEmpty ? minHeight : DescriptionContentHeight;
+                DetailDescription.MaxHeight = double.PositiveInfinity;
+                ScrollViewer.SetVerticalScrollBarVisibility(DetailDescription, ScrollBarVisibility.Disabled);
+                return;
+            }
+
+            var padding = DetailDescription.Padding;
+            var textWidth = DetailDescription.ActualWidth - padding.Left - padding.Right;
+            if (textWidth <= 0) textWidth = 324;
+
+            var fontSize = DetailDescription.FontSize;
+            if (fontSize <= 0) fontSize = 14;
+
+            var measure = new TextBlock
+            {
+                Text = isEmpty ? " " : text,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = fontSize,
+                FontFamily = DetailDescription.FontFamily,
+                FontWeight = DetailDescription.FontWeight,
+            };
+            measure.Measure(new Size(textWidth, double.PositiveInfinity));
+
+            var contentHeight = measure.DesiredSize.Height + padding.Top + padding.Bottom;
+            var targetHeight = Math.Clamp(contentHeight, minHeight, DescriptionLinkedMaxHeight);
+
+            DetailDescription.MaxHeight = DescriptionLinkedMaxHeight;
+            DetailDescription.Height = targetHeight;
+            ScrollViewer.SetVerticalScrollBarVisibility(
+                DetailDescription,
+                contentHeight > DescriptionLinkedMaxHeight ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled);
+        }
+
+        private double GetDescriptionMinHeight()
+        {
+            var padding = DetailDescription.Padding;
+            var fontSize = DetailDescription.FontSize;
+            if (fontSize <= 0) fontSize = 14;
+
+            var measure = new TextBlock
+            {
+                Text = "A",
+                FontSize = fontSize,
+                FontFamily = DetailDescription.FontFamily,
+                FontWeight = DetailDescription.FontWeight,
+            };
+            measure.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return measure.DesiredSize.Height + padding.Top + padding.Bottom;
+        }
 
         private void DetailDescription_KeyDown(object sender, KeyRoutedEventArgs e)
         {
@@ -1588,6 +1685,8 @@ namespace Memo
                     task.RefreshDateDisplay();
                 foreach (var task in CompletedTasks)
                     task.RefreshDateDisplay();
+                ResortActiveTasksIfNeeded();
+                RefreshMatrixIfVisible();
             });
         }
 
@@ -1638,6 +1737,7 @@ namespace Memo
             }
 
             UpdateTaskItemSelection(null);
+            RefreshMatrixIfVisible();
         }
 
         private static DateTime CalculateNextRecurringDueDate(RecurrenceType recurrenceType, DateTime currentDueDate)
@@ -1656,79 +1756,96 @@ namespace Memo
         {
             if (sender is CheckBox cb && cb.DataContext is TaskItem task)
             {
-                _dbService.UpdateTaskChecked(task.Id, cb.IsChecked ?? false);
-                
-                if (cb.IsChecked ?? false)
-                {
-                    ReminderService.Instance.RemoveScheduledReminderNotifications(task.Id);
-                    ReminderService.Instance.ShowTaskCompletedNotification(task.Title);
+                HandleTaskCheckedChanged(task, cb.IsChecked ?? false);
+            }
+        }
 
-                    var recurrence = _dbService.GetRecurrenceForTask(task.Id);
-                    if (recurrence != null && recurrence.RecurrenceType != RecurrenceType.None)
+        private void HandleTaskCheckedChanged(TaskItem task, bool isChecked)
+        {
+            _dbService.UpdateTaskChecked(task.Id, isChecked);
+            task.IsChecked = isChecked;
+            task.CompletedAt = isChecked ? DateTime.Now : null;
+            task.IsAutoCompleted = false;
+
+            if (isChecked)
+            {
+                ReminderService.Instance.RemoveScheduledReminderNotifications(task.Id);
+                ReminderService.Instance.ShowTaskCompletedNotification(task.Title);
+
+                var recurrence = _dbService.GetRecurrenceForTask(task.Id);
+                if (recurrence != null && recurrence.RecurrenceType != RecurrenceType.None)
+                {
+                    var sourceDueDate = task.DueDate ?? recurrence.BaseDate;
+                    var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate);
+
+                    var newTask = _dbService.AddTask(task.Title, newDueDate, null, task.ListId);
+                    newTask.Description = task.Description;
+                    _dbService.UpdateTask(newTask);
+
+                    recurrence.NextDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, newDueDate);
+                    _dbService.UpdateRecurrence(recurrence);
+
+                    var oldReminders = _dbService.GetRemindersForTask(task.Id);
+                    foreach (var oldReminder in oldReminders)
                     {
-                        var sourceDueDate = task.DueDate ?? recurrence.BaseDate;
-                        var newDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, sourceDueDate);
-                        
-                        var newTask = _dbService.AddTask(task.Title, newDueDate, null, task.ListId);
-                        newTask.Description = task.Description;
-                        _dbService.UpdateTask(newTask);
-                        
-                        recurrence.NextDueDate = CalculateNextRecurringDueDate(recurrence.RecurrenceType, newDueDate);
-                        _dbService.UpdateRecurrence(recurrence);
-                        
-                        var oldReminders = _dbService.GetRemindersForTask(task.Id);
-                        foreach (var oldReminder in oldReminders)
+                        if (oldReminder.ReminderDateTime.HasValue)
                         {
-                            if (oldReminder.ReminderDateTime.HasValue)
+                            var dayOffset = (oldReminder.ReminderDateTime.Value.Date - sourceDueDate.Date).Days;
+                            var newReminderDate = newDueDate.Date.AddDays(dayOffset).Add(oldReminder.ReminderDateTime.Value.TimeOfDay);
+
+                            if (newReminderDate > DateTime.Now)
                             {
-                                var dayOffset = (oldReminder.ReminderDateTime.Value.Date - sourceDueDate.Date).Days;
-                                var newReminderDate = newDueDate.Date.AddDays(dayOffset).Add(oldReminder.ReminderDateTime.Value.TimeOfDay);
-                                
-                                if (newReminderDate > DateTime.Now)
+                                var newReminder = new Reminder
                                 {
-                                    var newReminder = new Reminder
-                                    {
-                                        TaskId = newTask.Id,
-                                        ReminderType = oldReminder.ReminderType,
-                                        ReminderDateTime = newReminderDate,
-                                        EnableMultiDayReminders = oldReminder.EnableMultiDayReminders,
-                                        SameDayIntervalMinutes = oldReminder.SameDayIntervalMinutes,
-                                        CustomDays = oldReminder.CustomDays,
-                                        IsRecurring = oldReminder.IsRecurring,
-                                        RecurringInterval = oldReminder.RecurringInterval
-                                    };
-                                    _dbService.AddReminderWithDetails(newReminder);
-                                }
+                                    TaskId = newTask.Id,
+                                    ReminderType = oldReminder.ReminderType,
+                                    ReminderDateTime = newReminderDate,
+                                    EnableMultiDayReminders = oldReminder.EnableMultiDayReminders,
+                                    SameDayIntervalMinutes = oldReminder.SameDayIntervalMinutes,
+                                    CustomDays = oldReminder.CustomDays,
+                                    IsRecurring = oldReminder.IsRecurring,
+                                    RecurringInterval = oldReminder.RecurringInterval
+                                };
+                                _dbService.AddReminderWithDetails(newReminder);
                             }
                         }
-                        
-                        var newRecurrence = _dbService.AddRecurrence(newTask.Id, recurrence.RecurrenceType, newDueDate);
-                        newRecurrence.NextDueDate = _dbService.CalculateNextRecurrenceDate(recurrence.RecurrenceType, newDueDate);
-                        _dbService.UpdateRecurrence(newRecurrence);
-                        newTask.Recurrence = newRecurrence;
-                        
-                        Tasks.Add(newTask);
-                        ReminderService.Instance.ScheduleReminderNotificationsForTask(newTask.Id);
                     }
-                    
-                    if (Tasks.Contains(task))
-                    {
-                        Tasks.Remove(task);
-                        CompletedTasks.Add(task);
-                    }
-                    
-                    _selectedTask = null;
-                    UpdateTaskItemSelection(null);
+
+                    var newRecurrence = _dbService.AddRecurrence(newTask.Id, recurrence.RecurrenceType, newDueDate);
+                    newRecurrence.NextDueDate = _dbService.CalculateNextRecurrenceDate(recurrence.RecurrenceType, newDueDate);
+                    _dbService.UpdateRecurrence(newRecurrence);
+                    newTask.Recurrence = newRecurrence;
+
+                    Tasks.Add(newTask);
+                    ReminderService.Instance.ScheduleReminderNotificationsForTask(newTask.Id);
+                }
+
+                if (Tasks.Contains(task))
+                {
+                    Tasks.Remove(task);
+                    CompletedTasks.Add(task);
+                }
+
+                if (_selectedTask?.Id == task.Id)
+                {
+                    CloseDrawer();
                 }
                 else
                 {
-                    if (CompletedTasks.Contains(task))
-                    {
-                        CompletedTasks.Remove(task);
-                        Tasks.Add(task);
-                    }
+                    _selectedTask = null;
+                }
+                UpdateTaskItemSelection(null);
+            }
+            else
+            {
+                if (CompletedTasks.Contains(task))
+                {
+                    CompletedTasks.Remove(task);
+                    Tasks.Add(task);
                 }
             }
+
+            RefreshMatrixIfVisible();
         }
 
         private void ShowAddTaskInput_Click(object sender, RoutedEventArgs e)
@@ -1810,6 +1927,7 @@ namespace Memo
                     newTask.SubTasks.Add(subTask);
                 }
                 Tasks.Add(newTask);
+                ResortActiveTasksIfNeeded();
 
                 // 自动生成截止日默认提醒
                 if (_pendingDueDate.HasValue)
@@ -1973,22 +2091,17 @@ namespace Memo
 
         private NavigationViewItem? FindNavItemByTag(string tag)
         {
-            foreach (var item in NavView.MenuItems)
+            return FindNavItemInCollection(NavView.MenuItems, tag);
+        }
+
+        private static NavigationViewItem? FindNavItemInCollection(System.Collections.Generic.IList<object> items, string tag)
+        {
+            foreach (var item in items)
             {
-                if (item is NavigationViewItem navItem && navItem.Tag?.ToString() == tag)
-                {
-                    return navItem;
-                }
-                if (item is NavigationViewItem parentItem && parentItem.MenuItems != null)
-                {
-                    foreach (var child in parentItem.MenuItems)
-                    {
-                        if (child is NavigationViewItem childItem && childItem.Tag?.ToString() == tag)
-                        {
-                            return childItem;
-                        }
-                    }
-                }
+                if (item is not NavigationViewItem navItem) continue;
+                if (navItem.Tag?.ToString() == tag) return navItem;
+                var found = FindNavItemInCollection(navItem.MenuItems, tag);
+                if (found != null) return found;
             }
             return null;
         }
@@ -1997,7 +2110,7 @@ namespace Memo
         {
             if (_selectedTask != null && sender is CheckBox cb)
             {
-                _selectedTask.IsChecked = cb.IsChecked ?? false;
+                HandleTaskCheckedChanged(_selectedTask, cb.IsChecked ?? false);
             }
         }
 
@@ -2193,6 +2306,8 @@ namespace Memo
 
                 DetailCalendarView.Visibility = Visibility.Collapsed;
                 ScrollToElement(DueDateButton);
+                NotifyAutoUrgencyChangedIfNeeded();
+                ResortActiveTasksIfNeeded();
             }
         }
         
@@ -2204,6 +2319,8 @@ namespace Memo
                 RefreshSelectedTaskDueDateControls();
                 
                 _dbService.UpdateTask(_selectedTask);
+                NotifyAutoUrgencyChangedIfNeeded();
+                ResortActiveTasksIfNeeded();
             }
         }
         
@@ -2603,15 +2720,6 @@ namespace Memo
                 _selectedTask.Recurrence = null;
                 RecurrenceText.Text = "重复";
                 ClearRecurrenceButton.Visibility = Visibility.Collapsed;
-            }
-        }
-
-        private void ImportantToggle_Toggled(object sender, RoutedEventArgs e)
-        {
-            if (_selectedTask != null && sender is ToggleSwitch toggle)
-            {
-                _selectedTask.IsImportant = toggle.IsOn;
-                _dbService.UpdateTaskImportant(_selectedTask.Id, toggle.IsOn);
             }
         }
 

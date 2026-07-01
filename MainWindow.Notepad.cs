@@ -35,6 +35,7 @@ namespace Memo
             PageHeader.Visibility = Visibility.Visible;
             NotepadContent.Visibility = Visibility.Collapsed;
             TaskListScrollViewer.Visibility = Visibility.Visible;
+            MatrixContent.Visibility = Visibility.Collapsed;
             AddTaskBar.Visibility = Visibility.Visible;
         }
 
@@ -43,6 +44,7 @@ namespace Memo
             PageHeader.Visibility = Visibility.Collapsed;
             NotepadContent.Visibility = Visibility.Visible;
             TaskListScrollViewer.Visibility = Visibility.Collapsed;
+            MatrixContent.Visibility = Visibility.Collapsed;
             AddTaskBar.Visibility = Visibility.Collapsed;
             if (!_isNotepadInitialized)
                 InitializeNotepad();
@@ -59,6 +61,14 @@ namespace Memo
         private void InitializeNotepad()
         {
             _isNotepadInitialized = true;
+
+            NotepadSmartEditDebug.LogInit("MainWindow");
+            NotepadEditor.EditStateChanged += text =>
+            {
+                if (_currentNotepadTab != null)
+                    _currentNotepadTab.Content = text;
+            };
+            NotepadEditor.SmartKeyDown += OnNotepadEditorKeyDown;
 
             if (_notepadTabs.Count > 0)
             {
@@ -291,9 +301,34 @@ namespace Memo
         private static bool IsExternalNotepadTab(NotepadTab tab) =>
             !string.IsNullOrWhiteSpace(tab.FilePath);
 
-        private void NotepadTabView_AddTabClick(TabView sender, object args)
+        private async void NotepadTabView_AddTabClick(TabView sender, object args)
         {
-            AddNotepadTab("未命名");
+            var title = await PromptNotepadTabTitleAsync();
+            if (title != null)
+                AddNotepadTab(title);
+        }
+
+        private async Task<string?> PromptNotepadTabTitleAsync()
+        {
+            var textBox = new TextBox
+            {
+                PlaceholderText = "输入标签标题",
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = "新建标签",
+                Content = textBox,
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = this.Content.XamlRoot,
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+                return string.IsNullOrWhiteSpace(textBox.Text) ? "未命名" : textBox.Text.Trim();
+            return null;
         }
 
         private void NotepadTabView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -304,6 +339,9 @@ namespace Memo
             {
                 _currentNotepadTab = tab;
                 NotepadEditor.DataContext = tab;
+                NotepadEditor.Text = tab.Content ?? string.Empty;
+                NotepadEditor.ResetUndoHistory();
+                NotepadEditor.ApplyEditorTheme();
                 _isPreviewMode = true;
                 NotepadEditor.IsReadOnly = true;
                 NotepadEditor.AcceptsReturn = false;
@@ -414,9 +452,12 @@ namespace Memo
         {
             _isPreviewMode = false;
             NotepadEditor.IsReadOnly = false;
-            NotepadEditor.AcceptsReturn = true;
+            // Enter 由续行引擎处理；AcceptsReturn=true 时 WinUI 会在内部消费 Enter，导致智能填充失效。
+            NotepadEditor.AcceptsReturn = false;
             NotepadPreviewToggleIcon.Glyph = "";
             NotepadPreviewToggleText.Text = "预览";
+            NotepadEditor.ApplyEditorTheme();
+            NotepadEditor.ResetUndoHistory();
             NotepadEditor.Focus(FocusState.Programmatic);
             NotepadEditor.SelectionStart = NotepadEditor.Text.Length;
         }
@@ -440,10 +481,25 @@ namespace Memo
             if (_isPreviewMode) SwitchToEditMode(); else SwitchToPreviewMode();
         }
 
-        private void NotepadEditor_KeyDown(object sender, KeyRoutedEventArgs e)
+        private void OnNotepadEditorKeyDown(KeyRoutedEventArgs e)
         {
             if (_isPreviewMode)
             {
+                NotepadSmartEditDebug.LogKeyDown(
+                    "MainWindow",
+                    "handler:preview",
+                    new NotepadSmartEditDebug.KeyInfo
+                    {
+                        Key = e.Key.ToString(),
+                        Handled = e.Handled,
+                        IsPreviewMode = true,
+                        AcceptsReturn = NotepadEditor.AcceptsReturn,
+                        IsReadOnly = NotepadEditor.IsReadOnly,
+                        RawSelectionStart = NotepadEditor.SelectionStart,
+                        RawSelectionEnd = NotepadEditor.SelectionStart + NotepadEditor.SelectionLength,
+                        TextLength = (NotepadEditor.Text ?? string.Empty).Length
+                    });
+
                 // Preview mode: Enter to edit, Q/E to switch tabs
                 if (e.Key == Windows.System.VirtualKey.Enter)
                 {
@@ -463,6 +519,38 @@ namespace Memo
             }
             else
             {
+                NotepadSmartEditDebug.LogKeyDown(
+                    "MainWindow",
+                    "handler:edit:before",
+                    new NotepadSmartEditDebug.KeyInfo
+                    {
+                        Key = e.Key.ToString(),
+                        Handled = e.Handled,
+                        IsPreviewMode = false,
+                        AcceptsReturn = NotepadEditor.AcceptsReturn,
+                        IsReadOnly = NotepadEditor.IsReadOnly,
+                        RawSelectionStart = NotepadEditor.SelectionStart,
+                        RawSelectionEnd = NotepadEditor.SelectionStart + NotepadEditor.SelectionLength,
+                        TextLength = (NotepadEditor.Text ?? string.Empty).Length
+                    });
+
+                if (NotepadSmartEditHelper.TryApplyKeyDown(
+                    NotepadEditor,
+                    e,
+                    content =>
+                    {
+                        if (_currentNotepadTab != null)
+                            _currentNotepadTab.Content = content;
+                    },
+                    debugSource: "MainWindow"))
+                {
+                    e.Handled = true;
+                    NotepadSmartEditDebug.LogNote("MainWindow", $"smart-edit applied key={e.Key}");
+                    return;
+                }
+
+                NotepadSmartEditDebug.LogSkipped("MainWindow", $"smart-edit not applied key={e.Key}");
+
                 // Edit mode: Escape to preview, Ctrl+S to save
                 if (e.Key == Windows.System.VirtualKey.Escape)
                 {
@@ -477,7 +565,12 @@ namespace Memo
             }
         }
 
-        private void NotepadEditor_TextChanged(object sender, TextChangedEventArgs e) { }
+        private void NotepadEditor_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isNotepadTabSwitching || _currentNotepadTab == null || _isPreviewMode)
+                return;
+            _currentNotepadTab.Content = NotepadEditor.Text ?? string.Empty;
+        }
 
         private void SwitchToPrevNotepadTab()
         {

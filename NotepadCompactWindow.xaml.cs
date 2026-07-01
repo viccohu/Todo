@@ -38,6 +38,15 @@ namespace Memo
             _dbService = dbService;
             _tabs = tabs ?? new ObservableCollection<NotepadTab>();
 
+            Editor.SmartKeyDown += OnEditorKeyDown;
+            Editor.EditStateChanged += text =>
+            {
+                if (_currentTab != null)
+                    _currentTab.Content = text;
+            };
+
+            NotepadSmartEditDebug.LogInit("CompactWindow");
+
             this.Closed += (s, e) => this.StopPinnedWindowGuard();
 
             this.ApplyCompactWindowStyle();
@@ -220,9 +229,34 @@ namespace Memo
                 $"caller={method} at {System.IO.Path.GetFileName(file)}:{line}");
         }
 
-        private void TabView_AddTabClick(TabView sender, object args)
+        private async void TabView_AddTabClick(TabView sender, object args)
         {
-            AddTab("未命名");
+            var title = await PromptNotepadTabTitleAsync();
+            if (title != null)
+                AddTab(title);
+        }
+
+        private async Task<string?> PromptNotepadTabTitleAsync()
+        {
+            var textBox = new TextBox
+            {
+                PlaceholderText = "输入标签标题",
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = "新建标签",
+                Content = textBox,
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = this.Content.XamlRoot,
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+                return string.IsNullOrWhiteSpace(textBox.Text) ? "未命名" : textBox.Text.Trim();
+            return null;
         }
 
         private void TabView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -233,6 +267,9 @@ namespace Memo
             {
                 _currentTab = tab;
                 Editor.DataContext = tab;
+                Editor.Text = tab.Content ?? string.Empty;
+                Editor.ResetUndoHistory();
+                Editor.ApplyEditorTheme();
                 _isPreviewMode = true;
                 Editor.IsReadOnly = true;
                 Editor.AcceptsReturn = false;
@@ -328,7 +365,9 @@ namespace Memo
         {
             _isPreviewMode = false;
             Editor.IsReadOnly = false;
-            Editor.AcceptsReturn = true;
+            Editor.AcceptsReturn = false;
+            Editor.ApplyEditorTheme();
+            Editor.ResetUndoHistory();
             Editor.Focus(FocusState.Programmatic);
             Editor.SelectionStart = Editor.Text.Length;
             PreviewToggleIcon.Glyph = "";
@@ -351,7 +390,7 @@ namespace Memo
             if (_isPreviewMode) SwitchToEditMode(); else SwitchToPreviewMode();
         }
 
-        private void Editor_KeyDown(object sender, KeyRoutedEventArgs e)
+        private void OnEditorKeyDown(KeyRoutedEventArgs e)
         {
             if (_isPreviewMode)
             {
@@ -374,6 +413,23 @@ namespace Memo
             }
             else
             {
+                if (NotepadSmartEditHelper.TryApplyKeyDown(
+                    Editor,
+                    e,
+                    content =>
+                    {
+                        if (_currentTab != null)
+                            _currentTab.Content = content;
+                    },
+                    debugSource: "CompactWindow"))
+                {
+                    e.Handled = true;
+                    NotepadSmartEditDebug.LogNote("CompactWindow", $"smart-edit applied key={e.Key}");
+                    return;
+                }
+
+                NotepadSmartEditDebug.LogSkipped("CompactWindow", $"smart-edit not applied key={e.Key}");
+
                 // Edit mode: Escape to preview, Ctrl+S to save
                 if (e.Key == Windows.System.VirtualKey.Escape)
                 {
@@ -388,7 +444,12 @@ namespace Memo
             }
         }
 
-        private void Editor_TextChanged(object sender, TextChangedEventArgs e) { }
+        private void Editor_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isTabSwitching || _currentTab == null || _isPreviewMode)
+                return;
+            _currentTab.Content = Editor.Text ?? string.Empty;
+        }
 
         private void SwitchToPrevTab()
         {

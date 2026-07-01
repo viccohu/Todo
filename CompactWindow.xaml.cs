@@ -173,6 +173,14 @@ namespace Memo
             }
         }
 
+        private void SubTaskCheckBox_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is CheckBox cb && cb.DataContext is SubTask subTask)
+            {
+                _dbService.UpdateSubTaskChecked(subTask.Id, subTask.IsChecked);
+            }
+        }
+
         private void ToggleCompleted_Click(object sender, RoutedEventArgs e)
         {
             _showCompleted = !_showCompleted;

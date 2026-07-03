@@ -24,6 +24,29 @@ var tests = new (string Name, Action Test)[]
     ("backspace outdent at limit shakes flag", BackspaceOutdentAtLimit),
     ("backspace at document start is indent limit", BackspaceAtDocumentStartIsIndentLimit),
     ("shift tab at indent limit", ShiftTabAtIndentLimit),
+    ("enter after list marker keeps line", EnterAfterListMarkerKeepsLine),
+    ("enter mid ordered list splits and renumbers", EnterMidOrderedListSplitsAndRenumbers),
+    ("enter plain text before char", EnterPlainTextBeforeChar),
+    ("enter in blank lines keeps caret", EnterInBlankLinesKeepsCaret),
+    ("enter before list item inserts and renumbers", EnterBeforeListItemInsertsAndRenumbers),
+    ("pipeline enter plain text with crlf", PipelineEnterPlainTextWithCrLf),
+    ("pipeline enter end of list item with crlf", PipelineEnterEndOfListItemWithCrLf),
+    ("pipeline enter before list item with crlf", PipelineEnterBeforeListItemWithCrLf),
+    ("pipeline enter with crlf input", PipelineEnterWithCrLfInput),
+    ("pipeline enter in blank lines", PipelineEnterInBlankLines),
+    ("backspace merges line into empty ordered item", BackspaceMergesLineIntoEmptyOrderedItem),
+    ("backspace line start merge renumbers", BackspaceLineStartMergeRenumbers),
+    ("backspace selection delete renumbers", BackspaceSelectionDeleteRenumbers),
+    ("backspace marker removal renumbers below", BackspaceMarkerRemovalRenumbersBelow),
+    ("enter exits empty item renumbers below", EnterExitsEmptyItemRenumbersBelow),
+    ("renumber keeps list start number", RenumberKeepsListStartNumber),
+    ("backspace selection delete first item renumbers", BackspaceSelectionDeleteFirstItemRenumbers),
+    ("backspace selection delete leaves gap renumbers", BackspaceSelectionDeleteLeavesGapRenumbers),
+    ("enter split detects existing marker", EnterSplitDetectsExistingMarker),
+    ("enter split existing marker renumbers", EnterSplitExistingMarkerRenumbers),
+    ("enter split plain text still inserts marker", EnterSplitPlainTextStillInsertsMarker),
+    ("enter on blank line below list stays plain", EnterOnBlankLineBelowListStaysPlain),
+    ("enter after exiting list does not recreate marker", EnterAfterExitingListDoesNotRecreateMarker),
 };
 
 foreach (var test in tests)
@@ -183,4 +206,276 @@ static void ShiftTabAtIndentLimit()
     Equal(true, actual.Handled, nameof(ShiftTabAtIndentLimit));
     Equal(true, actual.IndentLimitReached, nameof(ShiftTabAtIndentLimit));
     Equal("line", actual.Text, nameof(ShiftTabAtIndentLimit));
+}
+
+static void EnterAfterListMarkerKeepsLine()
+{
+    const string text = "1. one\n2. two\n3. three";
+    const int caret = 10; // after "2. "
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "1. one\n2. \n3. two\n4. three",
+        14,
+        0,
+        nameof(EnterAfterListMarkerKeepsLine));
+}
+
+static void EnterMidOrderedListSplitsAndRenumbers()
+{
+    const string text = "1. one\n2. two\n3. three";
+    const int caret = 11; // between "t" and "wo"
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "1. one\n2. t\n3. wo\n4. three",
+        15,
+        0,
+        nameof(EnterMidOrderedListSplitsAndRenumbers));
+}
+
+static void EnterPlainTextBeforeChar()
+{
+    Result(Apply(NotepadEditCommand.Enter, "1234", 2), "12\n34", 3, 0, nameof(EnterPlainTextBeforeChar));
+}
+
+static void EnterInBlankLinesKeepsCaret()
+{
+    const string text = "a\n\n\nb";
+    const int caret = 3; // start of second blank line
+    Result(Apply(NotepadEditCommand.Enter, text, caret), "a\n\n\n\nb", 4, 0, nameof(EnterInBlankLinesKeepsCaret));
+}
+
+static void EnterBeforeListItemInsertsAndRenumbers()
+{
+    const string text = "1. one\n2. two\n3. three";
+    const int caret = 7; // line 2 start
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "1. one\n2. \n3. two\n4. three",
+        10,
+        0,
+        nameof(EnterBeforeListItemInsertsAndRenumbers));
+}
+
+// WinUI TextBox 内部换行为单个 '\r'，管线输出必须与其一致
+static void PipelineEnterPlainTextWithCrLf()
+{
+    var result = NotepadSmartEditPipeline.ApplyKey(
+        NotepadEditCommand.Enter,
+        "1234",
+        rawSelectionStart: 2,
+        rawSelectionLength: 0);
+    Equal(true, result.Handled, nameof(PipelineEnterPlainTextWithCrLf));
+    Equal("12\r34", result.DisplayText, nameof(PipelineEnterPlainTextWithCrLf) + " text");
+    Equal(3, result.DisplaySelectionStart, nameof(PipelineEnterPlainTextWithCrLf) + " caret");
+}
+
+static void PipelineEnterEndOfListItemWithCrLf()
+{
+    const string raw = "1. one\r2. two\r3. three";
+    var result = NotepadSmartEditPipeline.ApplyKey(
+        NotepadEditCommand.Enter,
+        raw,
+        rawSelectionStart: 6,
+        rawSelectionLength: 0);
+    Equal(true, result.Handled, nameof(PipelineEnterEndOfListItemWithCrLf));
+    Equal("1. one\r2. \r3. two\r4. three", result.DisplayText, nameof(PipelineEnterEndOfListItemWithCrLf) + " text");
+    Equal(10, result.DisplaySelectionStart, nameof(PipelineEnterEndOfListItemWithCrLf) + " caret");
+}
+
+static void PipelineEnterBeforeListItemWithCrLf()
+{
+    const string raw = "1. one\r2. two\r3. three";
+    var result = NotepadSmartEditPipeline.ApplyKey(
+        NotepadEditCommand.Enter,
+        raw,
+        rawSelectionStart: 7,
+        rawSelectionLength: 0);
+    Equal(true, result.Handled, nameof(PipelineEnterBeforeListItemWithCrLf));
+    Equal("1. one\r2. \r3. two\r4. three", result.DisplayText, nameof(PipelineEnterBeforeListItemWithCrLf) + " text");
+    Equal(10, result.DisplaySelectionStart, nameof(PipelineEnterBeforeListItemWithCrLf) + " caret");
+}
+
+// 从数据库载入的内容可能仍是 \r\n，输入索引换算要兼容
+static void PipelineEnterWithCrLfInput()
+{
+    var result = NotepadSmartEditPipeline.ApplyKey(
+        NotepadEditCommand.Enter,
+        "12\r\n34",
+        rawSelectionStart: 4,
+        rawSelectionLength: 0);
+    Equal(true, result.Handled, nameof(PipelineEnterWithCrLfInput));
+    Equal("12\r\r34", result.DisplayText, nameof(PipelineEnterWithCrLfInput) + " text");
+    Equal(4, result.DisplaySelectionStart, nameof(PipelineEnterWithCrLfInput) + " caret");
+}
+
+static void PipelineEnterInBlankLines()
+{
+    var result = NotepadSmartEditPipeline.ApplyKey(
+        NotepadEditCommand.Enter,
+        "a\r\r\rb",
+        rawSelectionStart: 3,
+        rawSelectionLength: 0);
+    Equal(true, result.Handled, nameof(PipelineEnterInBlankLines));
+    Equal("a\r\r\r\rb", result.DisplayText, nameof(PipelineEnterInBlankLines) + " text");
+    Equal(4, result.DisplaySelectionStart, nameof(PipelineEnterInBlankLines) + " caret");
+}
+
+// 用户案例：4. 为空项，光标在下一行行首按 Backspace，应把该行合并到 4. 后面
+static void BackspaceMergesLineIntoEmptyOrderedItem()
+{
+    const string text = "3. a\n4. \nb\n5. c";
+    const int caret = 9; // "b" 行首
+    Result(
+        Apply(NotepadEditCommand.Backspace, text, caret),
+        "3. a\n4. b\n5. c",
+        8,
+        0,
+        nameof(BackspaceMergesLineIntoEmptyOrderedItem));
+}
+
+static void BackspaceLineStartMergeRenumbers()
+{
+    const string text = "1. a\n2. b\n3. c";
+    const int caret = 5; // "2. b" 行首
+    Result(
+        Apply(NotepadEditCommand.Backspace, text, caret),
+        "1. a2. b\n2. c",
+        4,
+        0,
+        nameof(BackspaceLineStartMergeRenumbers));
+}
+
+static void BackspaceSelectionDeleteRenumbers()
+{
+    const string text = "1. a\n2. b\n3. c";
+    Result(
+        Apply(NotepadEditCommand.Backspace, text, 5, 5), // 选中 "2. b\n"
+        "1. a\n2. c",
+        5,
+        0,
+        nameof(BackspaceSelectionDeleteRenumbers));
+}
+
+static void BackspaceMarkerRemovalRenumbersBelow()
+{
+    const string text = "1. a\n2. \n3. c";
+    const int caret = 8; // "2. " 之后
+    Result(
+        Apply(NotepadEditCommand.Backspace, text, caret),
+        "1. a\n\n2. c",
+        5,
+        0,
+        nameof(BackspaceMarkerRemovalRenumbersBelow));
+}
+
+static void EnterExitsEmptyItemRenumbersBelow()
+{
+    const string text = "1. a\n2. \n3. c";
+    const int caret = 8; // "2. " 之后
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "1. a\n\n2. c",
+        5,
+        0,
+        nameof(EnterExitsEmptyItemRenumbersBelow));
+}
+
+// 删除（剪切）整个块首项后，剩余项应从原块首序号续排
+static void BackspaceSelectionDeleteFirstItemRenumbers()
+{
+    const string text = "1. a\n2. b\n3. c";
+    Result(
+        Apply(NotepadEditCommand.Backspace, text, 0, 5), // 选中 "1. a\n"
+        "1. b\n2. c",
+        0,
+        0,
+        nameof(BackspaceSelectionDeleteFirstItemRenumbers));
+}
+
+// 删除（剪切）某项正文留下空行断开列表时，下方块以被删项序号续排
+static void BackspaceSelectionDeleteLeavesGapRenumbers()
+{
+    const string text = "1. a\n2. b\n3. c";
+    Result(
+        Apply(NotepadEditCommand.Backspace, text, 5, 4), // 选中 "2. b"（不含换行）
+        "1. a\n\n2. c",
+        5,
+        0,
+        nameof(BackspaceSelectionDeleteLeavesGapRenumbers));
+}
+
+// 用户案例："4. 正反案例搭建5. OQC" 在 "5." 前回车，应识别已有序号而不是补 "5. "
+static void EnterSplitDetectsExistingMarker()
+{
+    const string text = "4. 正反案例搭建5. OQC";
+    const int caret = 9; // "5." 之前
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "4. 正反案例搭建\n5. OQC",
+        10,
+        0,
+        nameof(EnterSplitDetectsExistingMarker));
+}
+
+static void EnterSplitExistingMarkerRenumbers()
+{
+    const string text = "1. a2. b\n2. c";
+    const int caret = 4; // "2. b" 之前
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "1. a\n2. b\n3. c",
+        5,
+        0,
+        nameof(EnterSplitExistingMarkerRenumbers));
+}
+
+// "5.def" 缺少空格，不是列表标记，仍走原有补序号逻辑
+static void EnterSplitPlainTextStillInsertsMarker()
+{
+    const string text = "1. abc5.def";
+    const int caret = 6; // "5.def" 之前
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "1. abc\n2. 5.def",
+        10,
+        0,
+        nameof(EnterSplitPlainTextStillInsertsMarker));
+}
+
+// 列表项下方的空行行首回车：普通换行，不应在上方插入新序号
+static void EnterOnBlankLineBelowListStaysPlain()
+{
+    const string text = "3. x\n";
+    const int caret = 5; // 空行行首
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "3. x\n\n",
+        6,
+        0,
+        nameof(EnterOnBlankLineBelowListStaysPlain));
+}
+
+// 用户案例：空项回车退出列表后继续回车，不应反复生成/删除序号
+static void EnterAfterExitingListDoesNotRecreateMarker()
+{
+    // 第一次回车：空项 "4. " 退出列表
+    var first = Apply(NotepadEditCommand.Enter, "3. x\n4. ", 8);
+    Result(first, "3. x\n", 5, 0, nameof(EnterAfterExitingListDoesNotRecreateMarker) + " exit");
+
+    // 第二次回车：应是普通换行，光标下移，不再出现 "4. "
+    var second = Apply(NotepadEditCommand.Enter, first.Text, first.SelectionStart);
+    Result(second, "3. x\n\n", 6, 0, nameof(EnterAfterExitingListDoesNotRecreateMarker) + " newline");
+}
+
+// 列表可从任意序号开始，重排不应重置为 1
+static void RenumberKeepsListStartNumber()
+{
+    const string text = "3. a\n4. b\n5. c";
+    const int caret = 9; // "4. b" 行尾
+    Result(
+        Apply(NotepadEditCommand.Enter, text, caret),
+        "3. a\n4. b\n5. \n6. c",
+        13,
+        0,
+        nameof(RenumberKeepsListStartNumber));
 }

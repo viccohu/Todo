@@ -47,7 +47,12 @@ namespace Memo
 
             NotepadSmartEditDebug.LogInit("CompactWindow");
 
-            this.Closed += (s, e) => this.StopPinnedWindowGuard();
+            this.Closed += (s, e) =>
+            {
+                if (_currentTab != null)
+                    _currentTab.PropertyChanged -= OnCurrentTabPropertyChanged;
+                this.StopPinnedWindowGuard();
+            };
 
             this.ApplyCompactWindowStyle();
 
@@ -265,7 +270,10 @@ namespace Memo
             SaveCurrentTab();
             if (NotepadTabView.SelectedItem is TabViewItem tvi && tvi.Tag is NotepadTab tab)
             {
+                if (_currentTab != null)
+                    _currentTab.PropertyChanged -= OnCurrentTabPropertyChanged;
                 _currentTab = tab;
+                tab.PropertyChanged += OnCurrentTabPropertyChanged;
                 Editor.DataContext = tab;
                 Editor.Text = tab.Content ?? string.Empty;
                 Editor.ResetUndoHistory();
@@ -277,6 +285,23 @@ namespace Memo
                 PreviewToggleText.Text = "编辑";
             }
             _isTabSwitching = false;
+        }
+
+        /// <summary>主窗口修改当前标签内容时，实时刷新小窗编辑器。</summary>
+        private void OnCurrentTabPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(NotepadTab.Content))
+                return;
+            if (_isTabSwitching || sender is not NotepadTab tab || tab != _currentTab)
+                return;
+
+            var content = tab.Content ?? string.Empty;
+            if ((Editor.Text ?? string.Empty) == content)
+                return;
+
+            var caret = Math.Min(Editor.SelectionStart, content.Length);
+            Editor.Text = content;
+            Editor.SelectionStart = caret;
         }
 
         private void TabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
@@ -498,7 +523,9 @@ namespace Memo
             {
                 try
                 {
-                    await System.IO.File.WriteAllTextAsync(_currentTab.FilePath, _currentTab.Content);
+                    // TextBox 内部换行为 '\r'，写文件时转为标准 CRLF
+                    var fileContent = NotepadTextNewlineHelper.Normalize(_currentTab.Content ?? string.Empty).Replace("\n", "\r\n");
+                    await System.IO.File.WriteAllTextAsync(_currentTab.FilePath, fileContent);
                 }
                 catch { await SaveAsAsync(); }
             }
@@ -522,7 +549,9 @@ namespace Memo
             if (file != null)
             {
                 SaveCurrentTab();
-                await FileIO.WriteTextAsync(file, _currentTab.Content);
+                // TextBox 内部换行为 '\r'，写文件时转为标准 CRLF
+                var saveContent = NotepadTextNewlineHelper.Normalize(_currentTab.Content ?? string.Empty).Replace("\n", "\r\n");
+                await FileIO.WriteTextAsync(file, saveContent);
                 _currentTab.FilePath = file.Path;
                 _currentTab.Title = file.Name;
                 _dbService.UpdateNotepadTabFilePath(_currentTab.Id, file.Path);

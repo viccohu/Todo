@@ -1,4 +1,5 @@
 using System;
+using Memo.NotepadEdit;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -30,6 +31,34 @@ public sealed class NotepadEditTextBox : TextBox
         GotFocus += (_, _) => ApplyEditorTheme();
         RegisterPropertyChangedCallback(IsReadOnlyProperty, (_, _) => ApplyEditorTheme());
         BeforeTextChanging += OnBeforeTextChanging;
+        CuttingToClipboard += OnCuttingToClipboard;
+    }
+
+    /// <summary>
+    /// 接管剪切（Ctrl+X 与右键菜单），让删除走智能编辑管线，触发有序列表重排。
+    /// </summary>
+    private void OnCuttingToClipboard(TextBox sender, TextControlCuttingToClipboardEventArgs args)
+    {
+        if (IsReadOnly || SelectionLength <= 0)
+            return;
+
+        var raw = Text ?? string.Empty;
+        var start = Math.Clamp(SelectionStart, 0, raw.Length);
+        var length = Math.Clamp(SelectionLength, 0, raw.Length - start);
+        if (length <= 0)
+            return;
+
+        args.Handled = true;
+
+        // 剪贴板内容统一为 \r\n，保证粘贴到外部程序时换行正常
+        var selected = raw.Substring(start, length);
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(NotepadTextNewlineHelper.Normalize(selected).Replace("\n", "\r\n"));
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+
+        var pipeline = NotepadSmartEditPipeline.ApplyKey(NotepadEditCommand.Backspace, raw, start, length);
+        if (pipeline.Handled)
+            ApplyProgrammaticEdit(pipeline.DisplayText, pipeline.DisplaySelectionStart, pipeline.DisplaySelectionLength);
     }
 
     public void ResetUndoHistory()
@@ -40,12 +69,13 @@ public sealed class NotepadEditTextBox : TextBox
     public void ApplyProgrammaticEdit(string text, int selectionStart, int selectionLength)
     {
         _suppressUndoCapture = true;
+        var start = Math.Clamp(selectionStart, 0, text.Length);
+        var length = Math.Max(0, selectionLength);
         try
         {
             _undo.Push(CreateSnapshot());
             Text = text;
-            SelectionStart = selectionStart;
-            SelectionLength = Math.Max(0, selectionLength);
+            Select(start, length);
             EditStateChanged?.Invoke(text);
         }
         finally
@@ -53,13 +83,13 @@ public sealed class NotepadEditTextBox : TextBox
             _suppressUndoCapture = false;
         }
 
-        DispatcherQueue.TryEnqueue(() =>
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
         {
-            if (Text == text)
-            {
-                SelectionStart = selectionStart;
-                SelectionLength = Math.Max(0, selectionLength);
-            }
+            // 控件可能改写换行符表示，按规范化文本比较，避免校正被跳过
+            if (NotepadTextNewlineHelper.Normalize(Text) != NotepadTextNewlineHelper.Normalize(text))
+                return;
+
+            Select(Math.Clamp(start, 0, Text.Length), length);
         });
     }
 

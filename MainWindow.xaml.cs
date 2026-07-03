@@ -430,22 +430,8 @@ namespace Memo
 
         private void RefreshCustomNavigation()
         {
-            var itemsToRemove = new List<object>();
-            foreach (var item in NavView.MenuItems)
-            {
-                if (item is NavigationViewItem navItem)
-                {
-                    var tag = navItem.Tag?.ToString();
-                    if (tag?.StartsWith("Group_") == true || tag?.StartsWith("StandaloneList_") == true || tag == "CustomEmptyIcon")
-                    {
-                        itemsToRemove.Add(item);
-                    }
-                }
-            }
-            foreach (var item in itemsToRemove)
-            {
-                NavView.MenuItems.Remove(item);
-            }
+            RemoveCustomNavItems(TasksNavItem.MenuItems);
+            RemoveCustomNavItems(NavView.MenuItems);
 
             var hasCustomItems = _standaloneLists.Count > 0 || CustomGroups.Count > 0;
 
@@ -468,7 +454,7 @@ namespace Memo
                 emptyPanel.Children.Add(emptyIcon);
                 
                 emptyItem.Content = emptyPanel;
-                NavView.MenuItems.Add(emptyItem);
+                TasksNavItem.MenuItems.Add(emptyItem);
             }
 
             foreach (var list in _standaloneLists)
@@ -480,7 +466,7 @@ namespace Memo
                 };
                 listItem.Icon = AppIcons.Create(AppIcons.TaskList, 16);
                 listItem.ContextFlyout = CreateListContextFlyout(list);
-                NavView.MenuItems.Add(listItem);
+                TasksNavItem.MenuItems.Add(listItem);
             }
 
             foreach (var group in CustomGroups)
@@ -506,7 +492,27 @@ namespace Memo
                     groupItem.MenuItems.Add(listItem);
                 }
 
-                NavView.MenuItems.Add(groupItem);
+                TasksNavItem.MenuItems.Add(groupItem);
+            }
+        }
+
+        private static void RemoveCustomNavItems(System.Collections.Generic.IList<object> items)
+        {
+            var itemsToRemove = new List<object>();
+            foreach (var item in items)
+            {
+                if (item is NavigationViewItem navItem)
+                {
+                    var tag = navItem.Tag?.ToString();
+                    if (tag?.StartsWith("Group_") == true || tag?.StartsWith("StandaloneList_") == true || tag == "CustomEmptyIcon")
+                    {
+                        itemsToRemove.Add(item);
+                    }
+                }
+            }
+            foreach (var item in itemsToRemove)
+            {
+                items.Remove(item);
             }
         }
 
@@ -2075,12 +2081,18 @@ namespace Memo
             var newGroup = _dbService.AddGroup("新建分组");
             CustomGroups.Add(newGroup);
             RefreshCustomNavigation();
+            TasksNavItem.IsExpanded = true;
+
+            var newItem = FindNavItemByTag($"Group_{newGroup.Id}");
+            if (newItem != null)
+                NavView.SelectedItem = newItem;
         }
 
         private void NewList_Click(object sender, RoutedEventArgs e)
         {
             var newList = _dbService.AddListStandalone("新建列表");
             LoadCustomGroups();
+            TasksNavItem.IsExpanded = true;
             
             var newItem = FindNavItemByTag($"StandaloneList_{newList.Id}");
             if (newItem != null)

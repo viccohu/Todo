@@ -337,7 +337,10 @@ namespace Memo
             SaveCurrentNotepadTab();
             if (NotepadTabView.SelectedItem is TabViewItem tvi && tvi.Tag is NotepadTab tab)
             {
+                if (_currentNotepadTab != null)
+                    _currentNotepadTab.PropertyChanged -= OnCurrentNotepadTabPropertyChanged;
                 _currentNotepadTab = tab;
+                tab.PropertyChanged += OnCurrentNotepadTabPropertyChanged;
                 NotepadEditor.DataContext = tab;
                 NotepadEditor.Text = tab.Content ?? string.Empty;
                 NotepadEditor.ResetUndoHistory();
@@ -349,6 +352,23 @@ namespace Memo
                 NotepadPreviewToggleText.Text = "编辑";
             }
             _isNotepadTabSwitching = false;
+        }
+
+        /// <summary>其他窗口（如固定小窗）修改当前标签内容时，实时刷新本窗口编辑器。</summary>
+        private void OnCurrentNotepadTabPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(NotepadTab.Content))
+                return;
+            if (_isNotepadTabSwitching || sender is not NotepadTab tab || tab != _currentNotepadTab)
+                return;
+
+            var content = tab.Content ?? string.Empty;
+            if ((NotepadEditor.Text ?? string.Empty) == content)
+                return;
+
+            var caret = Math.Min(NotepadEditor.SelectionStart, content.Length);
+            NotepadEditor.Text = content;
+            NotepadEditor.SelectionStart = caret;
         }
 
         private void NotepadTabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
@@ -620,7 +640,9 @@ namespace Memo
             {
                 try
                 {
-                    await System.IO.File.WriteAllTextAsync(_currentNotepadTab.FilePath!, _currentNotepadTab.Content);
+                    // TextBox 内部换行为 '\r'，写文件时转为标准 CRLF
+                    var fileContent = NotepadTextNewlineHelper.Normalize(_currentNotepadTab.Content ?? string.Empty).Replace("\n", "\r\n");
+                    await System.IO.File.WriteAllTextAsync(_currentNotepadTab.FilePath!, fileContent);
                 }
                 catch
                 {
@@ -649,6 +671,8 @@ namespace Memo
             {
                 SaveCurrentNotepadTab();
                 var content = _isPreviewMode ? _currentNotepadTab.Content : NotepadEditor.Text;
+                // TextBox 内部换行为 '\r'，写文件时转为标准 CRLF
+                content = NotepadTextNewlineHelper.Normalize(content ?? string.Empty).Replace("\n", "\r\n");
                 await FileIO.WriteTextAsync(file, content);
                 if (updateCurrentTab)
                 {

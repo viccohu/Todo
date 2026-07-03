@@ -22,11 +22,10 @@ public static class NotepadSmartEditHelper
             return false;
 
         var raw = textBox.Text ?? string.Empty;
-        var normText = NotepadTextNewlineHelper.Normalize(raw);
-        var normStart = NotepadTextNewlineHelper.RawIndexToNormalized(raw, textBox.SelectionStart);
-        var normEnd = NotepadTextNewlineHelper.RawIndexToNormalized(raw, textBox.SelectionStart + textBox.SelectionLength);
-        var normLength = Math.Max(0, normEnd - normStart);
-        var currentLine = NotepadSmartEditDebug.GetCurrentLine(normText, normStart);
+        var normStart = NotepadNewlineHelper.RawIndexToNormalized(raw, textBox.SelectionStart);
+        var currentLine = NotepadSmartEditDebug.GetCurrentLine(
+            NotepadNewlineHelper.Normalize(raw),
+            normStart);
 
         NotepadSmartEditDebug.LogKeyDown(
             debugSource,
@@ -38,87 +37,91 @@ public static class NotepadSmartEditHelper
                 RawSelectionStart = textBox.SelectionStart,
                 RawSelectionEnd = textBox.SelectionStart + textBox.SelectionLength,
                 NormSelectionStart = normStart,
-                NormSelectionEnd = normEnd,
+                NormSelectionEnd = NotepadNewlineHelper.RawIndexToNormalized(
+                    raw,
+                    textBox.SelectionStart + textBox.SelectionLength),
                 TextLength = raw.Length,
                 CurrentLine = currentLine
             });
 
-        var result = NotepadContinuationEngine.Apply(
+        var pipeline = NotepadSmartEditPipeline.ApplyKey(
             command.Value,
-            new NotepadEditState(normText, normStart, normLength));
+            raw,
+            textBox.SelectionStart,
+            textBox.SelectionLength);
 
-        var outLine = NotepadSmartEditDebug.GetCurrentLine(result.Text, result.SelectionStart);
+        var outLine = NotepadSmartEditDebug.GetCurrentLine(
+            NotepadNewlineHelper.Normalize(pipeline.DisplayText),
+            NotepadNewlineHelper.RawIndexToNormalized(
+                pipeline.DisplayText,
+                pipeline.DisplaySelectionStart));
 
         NotepadSmartEditDebug.LogEngine(
             debugSource,
             command.Value.ToString(),
             new NotepadSmartEditDebug.EngineInfo
             {
-                Handled = result.Handled,
+                Handled = pipeline.Handled,
                 InStart = normStart,
-                InLength = normLength,
-                OutStart = result.SelectionStart,
-                OutLength = result.SelectionLength,
+                InLength = textBox.SelectionLength,
+                OutStart = NotepadNewlineHelper.RawIndexToNormalized(
+                    pipeline.DisplayText,
+                    pipeline.DisplaySelectionStart),
+                OutLength = pipeline.DisplaySelectionLength,
                 InLine = currentLine,
                 OutLine = outLine,
-                TextChanged = result.Handled,
-                OutTextPreview = PreviewText(result.Text)
+                TextChanged = pipeline.Handled && pipeline.DisplayText != raw,
+                OutTextPreview = PreviewText(pipeline.DisplayText)
             });
 
-        if (!result.Handled)
+        if (!pipeline.Handled)
         {
-            if (ShouldShakeAtEdge(command.Value, normStart, normLength)
+            if (ShouldShakeAtEdge(command.Value, normStart, textBox.SelectionLength)
                 && textBox is NotepadEditTextBox edgeEditor)
                 edgeEditor.ShowIndentLimitShake();
 
-            if (command == NotepadEditCommand.Backspace && normStart == 0 && normLength == 0)
+            if (command == NotepadEditCommand.Backspace && normStart == 0 && textBox.SelectionLength == 0)
                 return true;
 
             NotepadSmartEditDebug.LogSkipped(debugSource, $"engine unhandled command={command}");
             return false;
         }
 
-        if (result.IndentLimitReached && textBox is NotepadEditTextBox shakeEditor)
+        if (pipeline.IndentLimitReached && textBox is NotepadEditTextBox shakeEditor)
             shakeEditor.ShowIndentLimitShake();
 
-        if (result.IndentLimitReached
-            && result.Text == normText
-            && result.SelectionStart == normStart
-            && result.SelectionLength == normLength)
+        if (pipeline.IndentLimitReached
+            && pipeline.DisplayText == raw
+            && pipeline.DisplaySelectionStart == textBox.SelectionStart
+            && pipeline.DisplaySelectionLength == textBox.SelectionLength)
             return true;
-
-        var displayText = NotepadTextNewlineHelper.Denormalize(result.Text);
-        var displayStart = NotepadTextNewlineHelper.NormalizedIndexToRaw(result.Text, result.SelectionStart);
-        var displayEnd = NotepadTextNewlineHelper.NormalizedIndexToRaw(
-            result.Text,
-            result.SelectionStart + result.SelectionLength);
-        displayStart = Math.Clamp(displayStart, 0, displayText.Length);
-        displayEnd = Math.Clamp(displayEnd, displayStart, displayText.Length);
-        var displayLength = displayEnd - displayStart;
 
         beginApply?.Invoke();
         try
         {
             if (textBox is NotepadEditTextBox editor)
             {
-                editor.ApplyProgrammaticEdit(displayText, displayStart, Math.Max(0, displayLength));
-                syncContent?.Invoke(displayText);
+                editor.ApplyProgrammaticEdit(
+                    pipeline.DisplayText,
+                    pipeline.DisplaySelectionStart,
+                    pipeline.DisplaySelectionLength);
+                syncContent?.Invoke(pipeline.DisplayText);
             }
             else
             {
-                syncContent?.Invoke(displayText);
-                textBox.Text = displayText;
-                textBox.SelectionStart = displayStart;
-                textBox.SelectionLength = Math.Max(0, displayLength);
+                syncContent?.Invoke(pipeline.DisplayText);
+                textBox.Text = pipeline.DisplayText;
+                textBox.SelectionStart = pipeline.DisplaySelectionStart;
+                textBox.SelectionLength = pipeline.DisplaySelectionLength;
             }
 
             NotepadSmartEditDebug.LogApply(
                 debugSource,
                 new NotepadSmartEditDebug.ApplyInfo
                 {
-                    DisplayStart = displayStart,
-                    DisplayLength = Math.Max(0, displayLength),
-                    DisplayTextLength = displayText.Length,
+                    DisplayStart = pipeline.DisplaySelectionStart,
+                    DisplayLength = pipeline.DisplaySelectionLength,
+                    DisplayTextLength = pipeline.DisplayText.Length,
                     Deferred = textBox is NotepadEditTextBox
                 });
         }

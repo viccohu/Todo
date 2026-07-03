@@ -74,9 +74,9 @@
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
 
-                    <NavigationViewItem x:Name="TasksNavItem" Content="任务" Tag="Matrix" IsExpanded="True">
+                    <NavigationViewItem x:Name="TasksNavItem" Content="任务中心" Tag="Matrix" IsExpanded="True">
                         <NavigationViewItem.Icon>
-                            <ImageIcon Source="ms-appx:///Assets/icons/white/任务列表.svg" />
+                            <FontIcon Glyph="&#xEADF;" FontSize="6"/>
                         </NavigationViewItem.Icon>
                         <NavigationViewItem.MenuItems>
                             <NavigationViewItem Content="即时任务" Tag="Important">
@@ -91,8 +91,6 @@
                             </NavigationViewItem>
                         </NavigationViewItem.MenuItems>
                     </NavigationViewItem>
-                    
-                    <NavigationViewItemSeparator/>
                 </NavigationView.MenuItems>
 
                 <NavigationView.FooterMenuItems>
@@ -156,7 +154,7 @@
                         <!-- 页面标题 -->
                         <StackPanel x:Name="PageHeader" Grid.Row="0" Orientation="Horizontal" Spacing="15" Margin="40,20,40,20">
                             <ImageIcon x:Name="PageIcon" Source="ms-appx:///Assets/icons/white/任务列表.svg" Width="28" Height="28"/>
-                            <TextBlock x:Name="PageTitle" Text="任务" FontSize="28" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                            <TextBlock x:Name="PageTitle" Text="任务中心" FontSize="28" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                         </StackPanel>
 
                         <!-- 记事本页面 -->

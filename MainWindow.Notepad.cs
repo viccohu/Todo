@@ -63,10 +63,10 @@ namespace Memo
             _isNotepadInitialized = true;
 
             NotepadSmartEditDebug.LogInit("MainWindow");
-            NotepadEditor.EditStateChanged += text =>
+            NotepadEditor.EditStateChanged += _ =>
             {
                 if (_currentNotepadTab != null)
-                    _currentNotepadTab.Content = text;
+                    _currentNotepadTab.Content = NotepadEditor.StorageText;
             };
             NotepadEditor.SmartKeyDown += OnNotepadEditorKeyDown;
 
@@ -342,7 +342,7 @@ namespace Memo
                 _currentNotepadTab = tab;
                 tab.PropertyChanged += OnCurrentNotepadTabPropertyChanged;
                 NotepadEditor.DataContext = tab;
-                NotepadEditor.Text = tab.Content ?? string.Empty;
+                NotepadEditor.SetStorageText(tab.Content);
                 NotepadEditor.ResetUndoHistory();
                 NotepadEditor.ApplyEditorTheme();
                 _isPreviewMode = true;
@@ -350,8 +350,62 @@ namespace Memo
                 NotepadEditor.AcceptsReturn = false;
                 NotepadPreviewToggleIcon.Glyph = "";
                 NotepadPreviewToggleText.Text = "编辑";
+                UpdateNotepadPreviewDisplay();
             }
             _isNotepadTabSwitching = false;
+        }
+
+        /// <summary>
+        /// 预览态且有链接时显示芯片渲染层，否则显示只读文本框。
+        /// 必须延迟到输入事件之外执行：在编辑框自己的 KeyDown 回调里同步折叠
+        /// 仍持有焦点的控件并重建 RichTextBlock 会触发 XAML 原生层崩溃
+        /// (ExecutionEngineException)。
+        /// </summary>
+        private void UpdateNotepadPreviewDisplay()
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    if (_isPreviewMode && NotepadEditor.HasLinks)
+                    {
+                        LinkChipRenderer.RenderSelectable(NotepadPreviewDisplay, NotepadEditor.Text ?? string.Empty, NotepadEditor.Links);
+                        NotepadPreviewDisplayHost.Visibility = Visibility.Visible;
+                        NotepadEditor.Visibility = Visibility.Collapsed;
+                        FocusNotepadPreviewChrome();
+                    }
+                    else
+                    {
+                        NotepadPreviewDisplayHost.Visibility = Visibility.Collapsed;
+                        NotepadEditor.Visibility = Visibility.Visible;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Services.AppLog.Error($"UpdateNotepadPreviewDisplay: {ex}");
+                    NotepadPreviewDisplayHost.Visibility = Visibility.Collapsed;
+                    NotepadEditor.Visibility = Visibility.Visible;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 记事本页面级按键拦截（隧道事件，先于子控件触发）：
+        /// 预览态下无论焦点在哪，Enter 一律进入编辑模式，不依赖编辑框持有焦点。
+        /// </summary>
+        private void NotepadContent_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (!_isPreviewMode)
+                return;
+            if (e.Key != Windows.System.VirtualKey.Enter)
+                return;
+            // 弹窗/标题重命名等场景不拦截：焦点在 TextBox 上且可编辑时放行
+            if (Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Content.XamlRoot) is TextBox tb
+                && !tb.IsReadOnly)
+                return;
+
+            SwitchToEditMode();
+            e.Handled = true;
         }
 
         /// <summary>其他窗口（如固定小窗）修改当前标签内容时，实时刷新本窗口编辑器。</summary>
@@ -363,12 +417,16 @@ namespace Memo
                 return;
 
             var content = tab.Content ?? string.Empty;
-            if ((NotepadEditor.Text ?? string.Empty) == content)
+            // Content 是存储格式（可含 url[标题]），与编辑器的存储视图比较
+            var normalized = content.Replace("\r\n", "\r").Replace('\n', '\r');
+            if (NotepadEditor.StorageText == normalized)
                 return;
 
-            var caret = Math.Min(NotepadEditor.SelectionStart, content.Length);
-            NotepadEditor.Text = content;
-            NotepadEditor.SelectionStart = caret;
+            var caret = NotepadEditor.SelectionStart;
+            NotepadEditor.SetStorageText(content);
+            NotepadEditor.SelectionStart = Math.Min(caret, (NotepadEditor.Text ?? string.Empty).Length);
+            if (_isPreviewMode)
+                UpdateNotepadPreviewDisplay();
         }
 
         private void NotepadTabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
@@ -470,16 +528,45 @@ namespace Memo
 
         private void SwitchToEditMode()
         {
+            if (!_isPreviewMode)
+                return;
+
             _isPreviewMode = false;
             NotepadEditor.IsReadOnly = false;
             // Enter 由续行引擎处理；AcceptsReturn=true 时 WinUI 会在内部消费 Enter，导致智能填充失效。
             NotepadEditor.AcceptsReturn = false;
             NotepadPreviewToggleIcon.Glyph = "";
             NotepadPreviewToggleText.Text = "预览";
-            NotepadEditor.ApplyEditorTheme();
-            NotepadEditor.ResetUndoHistory();
-            NotepadEditor.Focus(FocusState.Programmatic);
-            NotepadEditor.SelectionStart = NotepadEditor.Text.Length;
+
+            // 必须在 KeyDown 事件结束后再折叠预览层：RichTextBlock 全选时同步
+            // 拆焦点/改 Visibility 会触发 XAML 原生层崩溃 (ExecutionEngineException)。
+            DispatcherQueue.TryEnqueue(ApplySwitchToEditModeUi);
+        }
+
+        /// <summary>延迟执行：先释放预览层选区/焦点，再显示编辑框并聚焦。</summary>
+        private void ApplySwitchToEditModeUi()
+        {
+            try
+            {
+                if (NotepadEditor.HasLinks && NotepadPreviewDisplayHost.Visibility == Visibility.Visible)
+                {
+                    NotepadPreviewToggleButton.Focus(FocusState.Programmatic);
+                    NotepadPreviewDisplay.Blocks.Clear();
+                    NotepadPreviewDisplayHost.Visibility = Visibility.Collapsed;
+                }
+
+                NotepadEditor.Visibility = Visibility.Visible;
+                NotepadEditor.ApplyEditorTheme();
+                NotepadEditor.ResetUndoHistory();
+                NotepadEditor.Focus(FocusState.Programmatic);
+                NotepadEditor.SelectionStart = (NotepadEditor.Text ?? string.Empty).Length;
+            }
+            catch (Exception ex)
+            {
+                Services.AppLog.Error($"ApplySwitchToEditModeUi: {ex}");
+                NotepadPreviewDisplayHost.Visibility = Visibility.Collapsed;
+                NotepadEditor.Visibility = Visibility.Visible;
+            }
         }
 
         private void SwitchToPreviewMode()
@@ -493,7 +580,14 @@ namespace Memo
             NotepadEditor.AcceptsReturn = false;
             NotepadPreviewToggleIcon.Glyph = "";
             NotepadPreviewToggleText.Text = "编辑";
+            UpdateNotepadPreviewDisplay();
+        }
+
+        /// <summary>预览态把焦点挪到工具栏按钮，避免落在 RichTextBlock 的 Hyperlink 上出现白框。</summary>
+        private void FocusNotepadPreviewChrome()
+        {
             NotepadPreviewToggleButton.Focus(FocusState.Programmatic);
+            DispatcherQueue.TryEnqueue(() => NotepadPreviewToggleButton.Focus(FocusState.Programmatic));
         }
 
         private void NotepadPreviewToggle_Click(object sender, RoutedEventArgs e)
@@ -557,10 +651,10 @@ namespace Memo
                 if (NotepadSmartEditHelper.TryApplyKeyDown(
                     NotepadEditor,
                     e,
-                    content =>
+                    _ =>
                     {
                         if (_currentNotepadTab != null)
-                            _currentNotepadTab.Content = content;
+                            _currentNotepadTab.Content = NotepadEditor.StorageText;
                     },
                     debugSource: "MainWindow"))
                 {
@@ -589,7 +683,7 @@ namespace Memo
         {
             if (_isNotepadTabSwitching || _currentNotepadTab == null || _isPreviewMode)
                 return;
-            _currentNotepadTab.Content = NotepadEditor.Text ?? string.Empty;
+            _currentNotepadTab.Content = NotepadEditor.StorageText;
         }
 
         private void SwitchToPrevNotepadTab()
@@ -670,7 +764,7 @@ namespace Memo
             if (file != null)
             {
                 SaveCurrentNotepadTab();
-                var content = _isPreviewMode ? _currentNotepadTab.Content : NotepadEditor.Text;
+                var content = _isPreviewMode ? _currentNotepadTab.Content : NotepadEditor.StorageText;
                 // TextBox 内部换行为 '\r'，写文件时转为标准 CRLF
                 content = NotepadTextNewlineHelper.Normalize(content ?? string.Empty).Replace("\n", "\r\n");
                 await FileIO.WriteTextAsync(file, content);

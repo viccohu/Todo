@@ -29,6 +29,10 @@ var tests = new (string Name, Action Test)[]
     ("enter plain text before char", EnterPlainTextBeforeChar),
     ("enter in blank lines keeps caret", EnterInBlankLinesKeepsCaret),
     ("enter before list item inserts and renumbers", EnterBeforeListItemInsertsAndRenumbers),
+    ("enter before first ordered item at doc start", EnterBeforeFirstOrderedItemAtDocStart),
+    ("enter before first ordered item after text", EnterBeforeFirstOrderedItemAfterText),
+    ("enter before first ordered item after blank", EnterBeforeFirstOrderedItemAfterBlank),
+    ("pipeline enter before first ordered item", PipelineEnterBeforeFirstOrderedItem),
     ("pipeline enter plain text with crlf", PipelineEnterPlainTextWithCrLf),
     ("pipeline enter end of list item with crlf", PipelineEnterEndOfListItemWithCrLf),
     ("pipeline enter before list item with crlf", PipelineEnterBeforeListItemWithCrLf),
@@ -254,6 +258,49 @@ static void EnterBeforeListItemInsertsAndRenumbers()
         10,
         0,
         nameof(EnterBeforeListItemInsertsAndRenumbers));
+}
+
+static void EnterBeforeFirstOrderedItemAtDocStart()
+{
+    // 文档开头、光标在 "1." 行首换行
+    Result(
+        Apply(NotepadEditCommand.Enter, "1. one\n2. two\n3. three", 0),
+        "\n1. one\n2. two\n3. three",
+        1,
+        0,
+        nameof(EnterBeforeFirstOrderedItemAtDocStart));
+}
+
+static void EnterBeforeFirstOrderedItemAfterText()
+{
+    Result(
+        Apply(NotepadEditCommand.Enter, "note\n1. one\n2. two", 5),
+        "note\n\n1. one\n2. two",
+        6,
+        0,
+        nameof(EnterBeforeFirstOrderedItemAfterText));
+}
+
+static void EnterBeforeFirstOrderedItemAfterBlank()
+{
+    Result(
+        Apply(NotepadEditCommand.Enter, "\n1. one\n2. two", 1),
+        "\n\n1. one\n2. two",
+        2,
+        0,
+        nameof(EnterBeforeFirstOrderedItemAfterBlank));
+}
+
+static void PipelineEnterBeforeFirstOrderedItem()
+{
+    var result = NotepadSmartEditPipeline.ApplyKey(
+        NotepadEditCommand.Enter,
+        "1. one\r2. two\r3. three",
+        rawSelectionStart: 0,
+        rawSelectionLength: 0);
+    Equal(true, result.Handled, nameof(PipelineEnterBeforeFirstOrderedItem));
+    Equal("\r1. one\r2. two\r3. three", result.DisplayText, nameof(PipelineEnterBeforeFirstOrderedItem) + " text");
+    Equal(1, result.DisplaySelectionStart, nameof(PipelineEnterBeforeFirstOrderedItem) + " caret");
 }
 
 // WinUI TextBox 内部换行为单个 '\r'，管线输出必须与其一致

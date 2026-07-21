@@ -29,6 +29,11 @@ namespace Memo.Services
             Write("NOTEPAD", message);
         }
 
+        public static void Error(string message)
+        {
+            Write("ERROR", message);
+        }
+
         private static void Write(string level, string message)
         {
             var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level}] {message}";

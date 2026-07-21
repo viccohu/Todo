@@ -41,6 +41,21 @@ namespace Memo
         public App()
         {
             InitializeComponent();
+
+            // 崩溃前尽量落盘日志，便于定位闪退
+            UnhandledException += (s, e) =>
+            {
+                AppLog.Error($"UnhandledException: {e.Exception}");
+            };
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                AppLog.Error($"AppDomain Unhandled: {e.ExceptionObject}");
+            };
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, e) =>
+            {
+                AppLog.Error($"UnobservedTaskException: {e.Exception}");
+                e.SetObserved();
+            };
         }
 
         /// <summary>

@@ -158,7 +158,8 @@
                         </StackPanel>
 
                         <!-- 记事本页面 -->
-                        <Grid x:Name="NotepadContent" Grid.Row="1" Visibility="Collapsed" Padding="4,0,2,0">
+                        <Grid x:Name="NotepadContent" Grid.Row="1" Visibility="Collapsed" Padding="4,0,2,0"
+                              PreviewKeyDown="NotepadContent_PreviewKeyDown">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
@@ -212,7 +213,8 @@
                                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                                     <Button x:Name="NotepadPreviewToggleButton"
                                             Click="NotepadPreviewToggle_Click"
-                                            Background="Transparent" BorderThickness="0" Padding="6,4" AllowFocusOnInteraction="False" IsTabStop="False"
+                                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                                            IsTabStop="False" UseSystemFocusVisuals="False"
                                             ToolTipService.ToolTip="切换预览/编辑">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <FontIcon x:Name="NotepadPreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -224,6 +226,7 @@
 
                             <!-- 编辑器（IsReadOnly 切换预览/编辑） -->
                             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                <Grid>
                                 <local:NotepadEditTextBox x:Name="NotepadEditor"
                                          TextWrapping="Wrap"
                                          VerticalAlignment="Stretch"
@@ -247,6 +250,20 @@
                                         <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="{ThemeResource TextFillColorSecondary}"/>
                                     </TextBox.Resources>
                                 </local:NotepadEditTextBox>
+                                <!-- 预览层：有链接时把链接渲染为 Hyperlink（纯文本元素，支持选择复制且无
+                                     InlineUIContainer + 文本选择的崩溃问题，见 microsoft-ui-xaml #5646） -->
+                                <Grid x:Name="NotepadPreviewDisplayHost"
+                                      Visibility="Collapsed"
+                                      Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+                                    <RichTextBlock x:Name="NotepadPreviewDisplay"
+                                                   Padding="24,8,24,8"
+                                                   FontSize="14"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   TextWrapping="Wrap"
+                                                   IsTextSelectionEnabled="True"
+                                                   IsTabStop="False"/>
+                                </Grid>
+                                </Grid>
                             </ScrollViewer>
 
                             <!-- 误关闭恢复提示 -->
@@ -969,31 +986,49 @@
                                         </Grid>
 
                                         <!-- 备注文本框 -->
-                                        <TextBox x:Name="DetailDescription"
-                                                 Grid.Row="1"
-                                                 PlaceholderText=""
-                                                 Background="Transparent"
-                                                 BorderThickness="0"
-                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                 AcceptsReturn="True"
-                                                 TextWrapping="Wrap"
-                                                 MinHeight="36"
-                                                 Height="36"
-                                                 Padding="12,8,12,8"
-                                                 TextChanged="DetailDescription_TextChanged"
-                                                 SizeChanged="DetailDescription_SizeChanged"
-                                                 KeyDown="DetailDescription_KeyDown"
-                                                 RightTapped="DetailDescription_RightTapped">
-                                            <TextBox.Resources>
-                                                <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorDisabled}"/>
-                                                <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
-                                                <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
-                                                <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
-                                                <SolidColorBrush x:Key="TextControlBackground" Color="Transparent"/>
-                                                <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent"/>
-                                                <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent"/>
-                                            </TextBox.Resources>
-                                        </TextBox>
+                                        <Grid Grid.Row="1">
+                                            <TextBox x:Name="DetailDescription"
+                                                     PlaceholderText=""
+                                                     Background="Transparent"
+                                                     BorderThickness="0"
+                                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                     AcceptsReturn="True"
+                                                     TextWrapping="Wrap"
+                                                     MinHeight="36"
+                                                     Height="36"
+                                                     Padding="12,8,12,8"
+                                                     TextChanged="DetailDescription_TextChanged"
+                                                     SizeChanged="DetailDescription_SizeChanged"
+                                                     KeyDown="DetailDescription_KeyDown"
+                                                     RightTapped="DetailDescription_RightTapped"
+                                                     LostFocus="DetailDescription_LostFocus"
+                                                     Paste="DetailDescription_Paste"
+                                                     CopyingToClipboard="DetailDescription_CopyingToClipboard"
+                                                     CuttingToClipboard="DetailDescription_CuttingToClipboard">
+                                                <TextBox.Resources>
+                                                    <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorDisabled}"/>
+                                                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBackground" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent"/>
+                                                </TextBox.Resources>
+                                            </TextBox>
+                                            <!-- 备注展示层：非编辑态把链接渲染为可点击芯片 -->
+                                            <Grid x:Name="DetailDescriptionDisplayHost"
+                                                  Visibility="Collapsed"
+                                                  Background="Transparent"
+                                                  MinHeight="36"
+                                                  Tapped="DetailDescriptionDisplay_Tapped">
+                                                <RichTextBlock x:Name="DetailDescriptionDisplay"
+                                                               Padding="12,8,12,8"
+                                                               FontSize="14"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                               TextWrapping="Wrap"
+                                                               IsTextSelectionEnabled="False"/>
+                                            </Grid>
+                                        </Grid>
                                     </Grid>
                                 </Border>
 

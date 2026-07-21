@@ -39,10 +39,10 @@ namespace Memo
             _tabs = tabs ?? new ObservableCollection<NotepadTab>();
 
             Editor.SmartKeyDown += OnEditorKeyDown;
-            Editor.EditStateChanged += text =>
+            Editor.EditStateChanged += _ =>
             {
                 if (_currentTab != null)
-                    _currentTab.Content = text;
+                    _currentTab.Content = Editor.StorageText;
             };
 
             NotepadSmartEditDebug.LogInit("CompactWindow");
@@ -275,7 +275,7 @@ namespace Memo
                 _currentTab = tab;
                 tab.PropertyChanged += OnCurrentTabPropertyChanged;
                 Editor.DataContext = tab;
-                Editor.Text = tab.Content ?? string.Empty;
+                Editor.SetStorageText(tab.Content);
                 Editor.ResetUndoHistory();
                 Editor.ApplyEditorTheme();
                 _isPreviewMode = true;
@@ -283,8 +283,62 @@ namespace Memo
                 Editor.AcceptsReturn = false;
                 PreviewToggleIcon.Glyph = "";
                 PreviewToggleText.Text = "编辑";
+                UpdatePreviewDisplay();
             }
             _isTabSwitching = false;
+        }
+
+        /// <summary>
+        /// 预览态且有链接时显示芯片渲染层，否则显示只读文本框。
+        /// 必须延迟到输入事件之外执行：在编辑框自己的 KeyDown 回调里同步折叠
+        /// 仍持有焦点的控件并重建 RichTextBlock 会触发 XAML 原生层崩溃
+        /// (ExecutionEngineException)。
+        /// </summary>
+        private void UpdatePreviewDisplay()
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    if (_isPreviewMode && Editor.HasLinks)
+                    {
+                        LinkChipRenderer.RenderSelectable(PreviewDisplay, Editor.Text ?? string.Empty, Editor.Links);
+                        PreviewDisplayHost.Visibility = Visibility.Visible;
+                        Editor.Visibility = Visibility.Collapsed;
+                        FocusPreviewChrome();
+                    }
+                    else
+                    {
+                        PreviewDisplayHost.Visibility = Visibility.Collapsed;
+                        Editor.Visibility = Visibility.Visible;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Error($"UpdatePreviewDisplay: {ex}");
+                    PreviewDisplayHost.Visibility = Visibility.Collapsed;
+                    Editor.Visibility = Visibility.Visible;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 窗口级按键拦截（隧道事件，先于子控件触发）：
+        /// 预览态下无论焦点在哪，Enter 一律进入编辑模式，不依赖编辑框持有焦点。
+        /// </summary>
+        private void RootGrid_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (!_isPreviewMode)
+                return;
+            if (e.Key != Windows.System.VirtualKey.Enter)
+                return;
+            // 弹窗/标题重命名等场景不拦截：焦点在可编辑 TextBox 上时放行
+            if (Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Content.XamlRoot) is TextBox tb
+                && !tb.IsReadOnly)
+                return;
+
+            SwitchToEditMode();
+            e.Handled = true;
         }
 
         /// <summary>主窗口修改当前标签内容时，实时刷新小窗编辑器。</summary>
@@ -296,12 +350,16 @@ namespace Memo
                 return;
 
             var content = tab.Content ?? string.Empty;
-            if ((Editor.Text ?? string.Empty) == content)
+            // Content 是存储格式（可含 url[标题]），与编辑器的存储视图比较
+            var normalized = content.Replace("\r\n", "\r").Replace('\n', '\r');
+            if (Editor.StorageText == normalized)
                 return;
 
-            var caret = Math.Min(Editor.SelectionStart, content.Length);
-            Editor.Text = content;
-            Editor.SelectionStart = caret;
+            var caret = Editor.SelectionStart;
+            Editor.SetStorageText(content);
+            Editor.SelectionStart = Math.Min(caret, (Editor.Text ?? string.Empty).Length);
+            if (_isPreviewMode)
+                UpdatePreviewDisplay();
         }
 
         private void TabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
@@ -388,15 +446,44 @@ namespace Memo
 
         private void SwitchToEditMode()
         {
+            if (!_isPreviewMode)
+                return;
+
             _isPreviewMode = false;
             Editor.IsReadOnly = false;
             Editor.AcceptsReturn = false;
-            Editor.ApplyEditorTheme();
-            Editor.ResetUndoHistory();
-            Editor.Focus(FocusState.Programmatic);
-            Editor.SelectionStart = Editor.Text.Length;
             PreviewToggleIcon.Glyph = "";
             PreviewToggleText.Text = "预览";
+
+            // 必须在 KeyDown 事件结束后再折叠预览层：RichTextBlock 全选时同步
+            // 拆焦点/改 Visibility 会触发 XAML 原生层崩溃 (ExecutionEngineException)。
+            DispatcherQueue.TryEnqueue(ApplySwitchToEditModeUi);
+        }
+
+        /// <summary>延迟执行：先释放预览层选区/焦点，再显示编辑框并聚焦。</summary>
+        private void ApplySwitchToEditModeUi()
+        {
+            try
+            {
+                if (Editor.HasLinks && PreviewDisplayHost.Visibility == Visibility.Visible)
+                {
+                    PreviewToggleButton.Focus(FocusState.Programmatic);
+                    PreviewDisplay.Blocks.Clear();
+                    PreviewDisplayHost.Visibility = Visibility.Collapsed;
+                }
+
+                Editor.Visibility = Visibility.Visible;
+                Editor.ApplyEditorTheme();
+                Editor.ResetUndoHistory();
+                Editor.Focus(FocusState.Programmatic);
+                Editor.SelectionStart = (Editor.Text ?? string.Empty).Length;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error($"ApplySwitchToEditModeUi: {ex}");
+                PreviewDisplayHost.Visibility = Visibility.Collapsed;
+                Editor.Visibility = Visibility.Visible;
+            }
         }
 
         private void SwitchToPreviewMode()
@@ -406,8 +493,16 @@ namespace Memo
             _isPreviewMode = true;
             Editor.IsReadOnly = true;
             Editor.AcceptsReturn = false;
+            UpdatePreviewDisplay();
             PreviewToggleIcon.Glyph = "";
             PreviewToggleText.Text = "编辑";
+        }
+
+        /// <summary>预览态把焦点挪到工具栏按钮，避免落在 RichTextBlock 的 Hyperlink 上出现白框。</summary>
+        private void FocusPreviewChrome()
+        {
+            PreviewToggleButton.Focus(FocusState.Programmatic);
+            DispatcherQueue.TryEnqueue(() => PreviewToggleButton.Focus(FocusState.Programmatic));
         }
 
         private void PreviewToggle_Click(object sender, RoutedEventArgs e)
@@ -441,10 +536,10 @@ namespace Memo
                 if (NotepadSmartEditHelper.TryApplyKeyDown(
                     Editor,
                     e,
-                    content =>
+                    _ =>
                     {
                         if (_currentTab != null)
-                            _currentTab.Content = content;
+                            _currentTab.Content = Editor.StorageText;
                     },
                     debugSource: "CompactWindow"))
                 {
@@ -473,7 +568,7 @@ namespace Memo
         {
             if (_isTabSwitching || _currentTab == null || _isPreviewMode)
                 return;
-            _currentTab.Content = Editor.Text ?? string.Empty;
+            _currentTab.Content = Editor.StorageText;
         }
 
         private void SwitchToPrevTab()

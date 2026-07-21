@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Memo.NotepadEdit;
+using Memo.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -11,7 +13,8 @@ using Windows.UI.Core;
 namespace Memo;
 
 /// <summary>
-/// 记事本编辑框：主题色、多步撤销、智能续行按键入口。
+/// 记事本编辑框：主题色、多步撤销、智能续行按键入口、链接标题化。
+/// Text 始终是显示文本（链接以 url[标题] 呈现），StorageText 同为 url[标题] 存储格式。
 /// </summary>
 public sealed class NotepadEditTextBox : TextBox
 {
@@ -19,6 +22,10 @@ public sealed class NotepadEditTextBox : TextBox
     private readonly TranslateTransform _shakeTransform = new();
     private bool _suppressUndoCapture;
     private Storyboard? _indentLimitShakeStoryboard;
+
+    private List<(string title, string url, int displayIndex, int displayLength)> _links = new();
+    private string _previousTextForLinks = "";
+    private bool _suppressLinkTracking;
 
     public event Action<KeyRoutedEventArgs>? SmartKeyDown;
     public event Action<string>? EditStateChanged;
@@ -32,10 +39,204 @@ public sealed class NotepadEditTextBox : TextBox
         RegisterPropertyChangedCallback(IsReadOnlyProperty, (_, _) => ApplyEditorTheme());
         BeforeTextChanging += OnBeforeTextChanging;
         CuttingToClipboard += OnCuttingToClipboard;
+        CopyingToClipboard += OnCopyingToClipboard;
+        Paste += OnPasteWithLinks;
+        RightTapped += OnRightTappedLinkMenu;
+        Tapped += OnTappedOpenLinkInPreview;
+    }
+
+    // ===================== 链接标题化 =====================
+
+    /// <summary>含 url[标题] 的存储格式文本。</summary>
+    public string StorageText => LinkMarkdownHelper.Reconstruct(Text ?? string.Empty, _links);
+
+    /// <summary>当前链接映射（预览层渲染用）。</summary>
+    public IReadOnlyList<(string title, string url, int displayIndex, int displayLength)> Links => _links;
+
+    public bool HasLinks => _links.Count > 0;
+
+    /// <summary>加载存储格式文本：链接转为纯标题显示并登记映射。</summary>
+    public void SetStorageText(string? raw)
+    {
+        // TextBox 内部换行为 '\r'，先统一再解析，保证映射索引一致
+        var normalized = (raw ?? string.Empty).Replace("\r\n", "\r").Replace('\n', '\r');
+        var (display, links) = LinkMarkdownHelper.Strip(normalized);
+
+        _suppressLinkTracking = true;
+        _suppressUndoCapture = true;
+        try
+        {
+            Text = display;
+        }
+        finally
+        {
+            _suppressUndoCapture = false;
+            _suppressLinkTracking = false;
+        }
+        _links = links;
+        _previousTextForLinks = display;
     }
 
     /// <summary>
-    /// 接管剪切（Ctrl+X 与右键菜单），让删除走智能编辑管线，触发有序列表重排。
+    /// 文本变化时按单一变更区间平移链接映射，标题被改动的链接降级为纯文本。
+    /// 在 BeforeTextChanging 中同步执行，保证 Text 更新后 StorageText 立即可靠。
+    /// </summary>
+    private void TrackLinksForNewText(string current)
+    {
+        if (_suppressLinkTracking)
+        {
+            _previousTextForLinks = current;
+            return;
+        }
+
+        if (_links.Count > 0 && current != _previousTextForLinks)
+        {
+            var (start, removed, inserted) = LinkMarkdownHelper.ComputeTextDiff(_previousTextForLinks, current);
+            LinkMarkdownHelper.ShiftLinksForChange(_links, start, removed, inserted);
+            LinkMarkdownHelper.ResyncLinks(_links, current);
+        }
+        _previousTextForLinks = current;
+    }
+
+    /// <summary>程序化替换文本与链接映射（进撤销栈并通知内容同步）。</summary>
+    private void ApplyLinkEdit(
+        string displayText,
+        List<(string title, string url, int displayIndex, int displayLength)> links,
+        int caret)
+    {
+        _suppressLinkTracking = true;
+        try
+        {
+            _links = links;
+            _previousTextForLinks = displayText;
+            ApplyProgrammaticEdit(displayText, Math.Clamp(caret, 0, displayText.Length), 0);
+        }
+        finally
+        {
+            _suppressLinkTracking = false;
+        }
+    }
+
+    /// <summary>文本粘贴统一手动处理：裸 URL 转为 url[] 并把光标移入括号，其余按纯文本插入。</summary>
+    private async void OnPasteWithLinks(object sender, TextControlPasteEventArgs e)
+    {
+        if (IsReadOnly)
+            return;
+
+        Windows.ApplicationModel.DataTransfer.DataPackageView view;
+        try
+        {
+            view = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+        }
+        catch
+        {
+            return;
+        }
+        if (!view.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+            return;
+
+        e.Handled = true;
+        string pasted;
+        try
+        {
+            pasted = await view.GetTextAsync();
+        }
+        catch
+        {
+            return;
+        }
+        if (string.IsNullOrEmpty(pasted))
+            return;
+
+        var selStart = SelectionStart;
+        var selLen = SelectionLength;
+
+        if (UrlTitleResolver.IsBareUrl(pasted))
+        {
+            var (text, links, caret) = LinkMarkdownHelper.InsertBareUrl(
+                Text ?? "", _links, selStart, selLen, pasted.Trim());
+            ApplyLinkEdit(text, links, caret);
+            return;
+        }
+
+        pasted = pasted.Replace("\r\n", "\r").Replace('\n', '\r');
+        var (plainText, plainLinks, plainCaret) = LinkMarkdownHelper.ReplaceRange(
+            Text ?? "", _links, selStart, selLen, pasted);
+        ApplyLinkEdit(plainText, plainLinks, plainCaret);
+    }
+
+    private void OnCopyingToClipboard(TextBox sender, TextControlCopyingToClipboardEventArgs args)
+    {
+        var clip = LinkMarkdownHelper.BuildClipboardText(Text ?? "", _links, SelectionStart, SelectionLength);
+        if (clip == null)
+            return;
+        args.Handled = true;
+        SetClipboardText(clip);
+    }
+
+    /// <summary>右键点在链接标题上时弹出打开/复制菜单。</summary>
+    private void OnRightTappedLinkMenu(object sender, RightTappedRoutedEventArgs e)
+    {
+        var link = LinkMarkdownHelper.GetLinkAtPosition(_links, SelectionStart);
+        if (link == null)
+            return;
+
+        var url = link.Value.url;
+        var menu = new MenuFlyout();
+        var openItem = new MenuFlyoutItem { Text = "打开链接", Icon = new FontIcon { Glyph = "\uE71B" } };
+        openItem.Click += (_, _) => OpenUrl(url);
+        menu.Items.Add(openItem);
+        var copyItem = new MenuFlyoutItem { Text = "复制链接", Icon = new SymbolIcon(Symbol.Copy) };
+        copyItem.Click += (_, _) => SetClipboardText(url);
+        menu.Items.Add(copyItem);
+
+        menu.ShowAt(this, e.GetPosition(this));
+        e.Handled = true;
+    }
+
+    /// <summary>预览（只读）模式下单击链接标题直接打开。</summary>
+    private void OnTappedOpenLinkInPreview(object sender, TappedRoutedEventArgs e)
+    {
+        if (!IsReadOnly)
+            return;
+        var link = LinkMarkdownHelper.GetLinkAtPosition(_links, SelectionStart);
+        if (link == null)
+            return;
+        OpenUrl(link.Value.url);
+        e.Handled = true;
+    }
+
+    private static async void OpenUrl(string url)
+    {
+        try
+        {
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                await Windows.System.Launcher.LaunchUriAsync(uri);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"OpenUrl error: {ex.Message}");
+        }
+    }
+
+    private static void SetClipboardText(string text)
+    {
+        try
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            // 剪贴板内容统一为 \r\n，保证粘贴到外部程序时换行正常
+            package.SetText(NotepadTextNewlineHelper.Normalize(text).Replace("\n", "\r\n"));
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Clipboard error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 接管剪切（Ctrl+X 与右键菜单），让删除走智能编辑管线，触发有序列表重排；
+    /// 选区含链接时剪贴板内容还原为 URL/Markdown。
     /// </summary>
     private void OnCuttingToClipboard(TextBox sender, TextControlCuttingToClipboardEventArgs args)
     {
@@ -50,11 +251,9 @@ public sealed class NotepadEditTextBox : TextBox
 
         args.Handled = true;
 
-        // 剪贴板内容统一为 \r\n，保证粘贴到外部程序时换行正常
-        var selected = raw.Substring(start, length);
-        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
-        package.SetText(NotepadTextNewlineHelper.Normalize(selected).Replace("\n", "\r\n"));
-        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        var clip = LinkMarkdownHelper.BuildClipboardText(raw, _links, start, length)
+            ?? raw.Substring(start, length);
+        SetClipboardText(clip);
 
         var pipeline = NotepadSmartEditPipeline.ApplyKey(NotepadEditCommand.Backspace, raw, start, length);
         if (pipeline.Handled)
@@ -240,6 +439,8 @@ public sealed class NotepadEditTextBox : TextBox
 
     private void OnBeforeTextChanging(TextBox sender, TextBoxBeforeTextChangingEventArgs args)
     {
+        TrackLinksForNewText(args.NewText ?? string.Empty);
+
         if (_suppressUndoCapture || IsReadOnly)
             return;
 

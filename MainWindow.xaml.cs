@@ -1033,13 +1033,14 @@ namespace Memo
             // 加载关联记事本
             LoadLinkedNotepadTab(task);
 
-            // 将描述中的 [title](url) 转为纯标题显示
+            // 将描述中的 url[标题]（及旧 [title](url)）转为显示文本
             var (displayText, links) = StripLinksForDisplay(task.Description ?? "");
             _isUpdatingDescriptionText = true;
             DetailDescription.Text = displayText;
             _descriptionLinks = links;
             _previousDescriptionText = displayText;
             _isUpdatingDescriptionText = false;
+            UpdateDescriptionDisplayMode();
             
             var subTasks = _dbService.GetSubTasksForTask(task.Id);
             _selectedTask.SubTasks.Clear();
@@ -1196,9 +1197,13 @@ namespace Memo
                     {
                         _selectedTask.Description = capturedTab.Content;
                     }
+                    var (linkedDisplay, linkedLinks) = StripLinksForDisplay(_selectedTask.Description ?? "");
                     _isUpdatingDescriptionText = true;
-                    DetailDescription.Text = _selectedTask.Description ?? "";
+                    DetailDescription.Text = linkedDisplay;
                     _isUpdatingDescriptionText = false;
+                    _descriptionLinks = linkedLinks;
+                    _previousDescriptionText = linkedDisplay;
+                    UpdateDescriptionDisplayMode();
 
                     _dbService.UpdateTask(_selectedTask);
 
@@ -1381,8 +1386,8 @@ namespace Memo
             if (_isUpdatingDescriptionText) return;
             if (_selectedTask == null) return;
 
-            // 检测是否有人工粘贴了 [title](url) 格式，自动转为纯标题
-            var (displayText, links) = StripLinksForDisplay(DetailDescription.Text);
+            // 检测是否有人工输入/粘贴了 url[标题] / [title](url) 格式，纳入链接映射
+            var (displayText, pastedLinks) = StripLinksForDisplay(DetailDescription.Text);
             if (displayText != DetailDescription.Text)
             {
                 _isUpdatingDescriptionText = true;
@@ -1390,31 +1395,36 @@ namespace Memo
                 DetailDescription.SelectionStart = displayText.Length;
                 _isUpdatingDescriptionText = false;
             }
-            _descriptionLinks = links;
 
-            // 根据文本变更调整链接位置
-            if (!string.IsNullOrEmpty(_previousDescriptionText))
+            // 用前后文本的公共前后缀求出单一变更区间，平移既有链接；
+            // 括号内的编辑由 ResyncLinks 重新解析为新标题，括号被破坏则降级为纯文本
+            var previous = _previousDescriptionText ?? "";
+            if (displayText != previous)
             {
-                var delta = displayText.Length - _previousDescriptionText.Length;
-                var changePos = DetailDescription.SelectionStart;
-                if (delta != 0)
-                {
-                    for (int i = 0; i < _descriptionLinks.Count; i++)
-                    {
-                        var l = _descriptionLinks[i];
-                        if (l.displayIndex >= changePos)
-                        {
-                            _descriptionLinks[i] = (l.title, l.url, l.displayIndex + delta, l.displayLength);
-                        }
-                    }
-                }
+                var (changeStart, removedLen, insertedLen) = LinkMarkdownHelper.ComputeTextDiff(previous, displayText);
+                LinkMarkdownHelper.ShiftLinksForChange(_descriptionLinks, changeStart, removedLen, insertedLen);
             }
+
+            // 合并本次新解析出的 markdown 链接
+            foreach (var link in pastedLinks)
+            {
+                if (!_descriptionLinks.Any(l => l.displayIndex == link.displayIndex))
+                    _descriptionLinks.Add(link);
+            }
+
+            LinkMarkdownHelper.ResyncLinks(_descriptionLinks, displayText);
             _previousDescriptionText = displayText;
 
             // 保存时用带链接的完整文本
-            var rawText = ReconstructLinksForStorage(displayText, links);
-            _selectedTask.Description = rawText;
+            _selectedTask.Description = ReconstructLinksForStorage(displayText, _descriptionLinks);
+            RestartDescriptionSaveTimer();
 
+            if (_selectedTask.LinkedNotepadTabId.HasValue)
+                ScheduleAdjustDetailDescriptionHeight();
+        }
+
+        private void RestartDescriptionSaveTimer()
+        {
             _saveDescriptionTimer?.Stop();
             _saveDescriptionTimer = new DispatcherTimer();
             _saveDescriptionTimer.Interval = TimeSpan.FromMilliseconds(300);
@@ -1447,9 +1457,6 @@ namespace Memo
                 }
             };
             _saveDescriptionTimer.Start();
-
-            if (_selectedTask.LinkedNotepadTabId.HasValue)
-                ScheduleAdjustDetailDescriptionHeight();
         }
 
         private void DetailDescription_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -1583,14 +1590,7 @@ namespace Memo
         /// </summary>
         private (string title, string url)? GetLinkAtPosition(int caretIndex)
         {
-            foreach (var link in _descriptionLinks)
-            {
-                if (caretIndex > link.displayIndex && caretIndex <= link.displayIndex + link.displayLength)
-                {
-                    return (link.title, link.url);
-                }
-            }
-            return null;
+            return LinkMarkdownHelper.GetLinkAtPosition(_descriptionLinks, caretIndex);
         }
 
         private static async void OpenUrl(string url)
@@ -1607,56 +1607,183 @@ namespace Memo
         }
 
         /// <summary>
-        /// 从存储格式 (含 [title](url)) 转为显示格式 (纯标题)，
-        /// 同时返回链接映射列表。
+        /// 从存储格式 (url[标题]，兼容旧 [title](url)) 转为显示格式，
+        /// 同时返回链接映射列表。TextBox 内部换行为 '\r'，先统一保证索引一致。
         /// </summary>
         private static (string displayText, List<(string title, string url, int displayIndex, int displayLength)> links)
             StripLinksForDisplay(string rawText)
         {
-            var links = new List<(string title, string url, int displayIndex, int displayLength)>();
-            if (string.IsNullOrEmpty(rawText))
-                return ("", links);
-
-            var displayText = "";
-            var regex = new System.Text.RegularExpressions.Regex(@"\[(.+?)\]\((.+?)\)");
-            var lastIndex = 0;
-
-            foreach (System.Text.RegularExpressions.Match match in regex.Matches(rawText))
-            {
-                displayText += rawText.Substring(lastIndex, match.Index - lastIndex);
-                var title = match.Groups[1].Value;
-                var url = match.Groups[2].Value;
-                links.Add((title, url, displayText.Length, title.Length));
-                displayText += title;
-                lastIndex = match.Index + match.Length;
-            }
-            displayText += rawText.Substring(lastIndex);
-
-            return (displayText, links);
+            var normalized = (rawText ?? "").Replace("\r\n", "\r").Replace('\n', '\r');
+            return LinkMarkdownHelper.Strip(normalized);
         }
 
         /// <summary>
-        /// 从显示文本 + 链接映射重建存储格式 (含 [title](url))。
+        /// 从显示文本 + 链接映射重建存储格式 (url[标题])。
         /// </summary>
         private static string ReconstructLinksForStorage(string displayText,
             List<(string title, string url, int displayIndex, int displayLength)> links)
         {
-            if (links.Count == 0) return displayText;
+            return LinkMarkdownHelper.Reconstruct(displayText, links);
+        }
 
-            // 按位置排序 (从后往前插入，避免坐标偏移)
-            var sorted = links.OrderBy(l => l.displayIndex).ToList();
-            var result = "";
-            var cursor = 0;
+        // ===================== 备注超链接：展示层 / 粘贴 / 复制 =====================
 
-            foreach (var link in sorted)
+        /// <summary>有链接且备注框未聚焦时显示芯片渲染层，否则显示文本框。</summary>
+        private void UpdateDescriptionDisplayMode()
+        {
+            if (_descriptionLinks.Count > 0 && DetailDescription.FocusState == FocusState.Unfocused)
             {
-                if (link.displayIndex < cursor) continue; // 跳过重叠/无效链接
-                result += displayText.Substring(cursor, link.displayIndex - cursor);
-                result += $"[{link.title}]({link.url})";
-                cursor = link.displayIndex + link.displayLength;
+                RenderDescriptionDisplay();
+                DetailDescriptionDisplayHost.Visibility = Visibility.Visible;
+                DetailDescription.Visibility = Visibility.Collapsed;
             }
-            result += displayText.Substring(cursor);
-            return result;
+            else
+            {
+                DetailDescriptionDisplayHost.Visibility = Visibility.Collapsed;
+                DetailDescription.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void DetailDescription_LostFocus(object sender, RoutedEventArgs e)
+        {
+            UpdateDescriptionDisplayMode();
+        }
+
+        private void DetailDescriptionDisplay_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            DetailDescriptionDisplayHost.Visibility = Visibility.Collapsed;
+            DetailDescription.Visibility = Visibility.Visible;
+            DetailDescription.Focus(FocusState.Programmatic);
+            DetailDescription.SelectionStart = (DetailDescription.Text ?? "").Length;
+        }
+
+        /// <summary>把显示文本按链接映射渲染为 Run + 链接芯片。</summary>
+        private void RenderDescriptionDisplay()
+        {
+            LinkChipRenderer.Render(DetailDescriptionDisplay, DetailDescription.Text ?? string.Empty, _descriptionLinks);
+        }
+
+        /// <summary>
+        /// 替换显示文本 [start, start+length) 为 insertRaw（可含 url[标题]），
+        /// 返回新显示文本、更新后的链接映射和替换段末尾的光标位置。
+        /// </summary>
+        private (string displayText, List<(string title, string url, int displayIndex, int displayLength)> links, int caretAfter)
+            ReplaceDescriptionRange(int start, int length, string insertRaw)
+        {
+            return LinkMarkdownHelper.ReplaceRange(DetailDescription.Text ?? "", _descriptionLinks, start, length, insertRaw);
+        }
+
+        /// <summary>程序化更新备注：写文本框、链接映射、任务描述并触发防抖保存。</summary>
+        private void ApplyDescriptionEdit(
+            string newDisplayText,
+            List<(string title, string url, int displayIndex, int displayLength)> newLinks,
+            int caret)
+        {
+            _isUpdatingDescriptionText = true;
+            DetailDescription.Text = newDisplayText;
+            DetailDescription.SelectionStart = Math.Clamp(caret, 0, newDisplayText.Length);
+            _isUpdatingDescriptionText = false;
+
+            _descriptionLinks = newLinks;
+            _previousDescriptionText = newDisplayText;
+
+            if (_selectedTask != null)
+            {
+                _selectedTask.Description = ReconstructLinksForStorage(newDisplayText, newLinks);
+                RestartDescriptionSaveTimer();
+                if (_selectedTask.LinkedNotepadTabId.HasValue)
+                    ScheduleAdjustDetailDescriptionHeight();
+            }
+
+            UpdateDescriptionDisplayMode();
+        }
+
+        /// <summary>文本粘贴统一手动处理：裸 URL 转为 url[] 并把光标移入括号，其余按纯文本插入。</summary>
+        private async void DetailDescription_Paste(object sender, TextControlPasteEventArgs e)
+        {
+            Windows.ApplicationModel.DataTransfer.DataPackageView view;
+            try
+            {
+                view = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+            }
+            catch
+            {
+                return;
+            }
+
+            if (!view.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+                return;
+
+            e.Handled = true;
+            string pasted;
+            try
+            {
+                pasted = await view.GetTextAsync();
+            }
+            catch
+            {
+                return;
+            }
+            if (string.IsNullOrEmpty(pasted))
+                return;
+
+            var selStart = DetailDescription.SelectionStart;
+            var selLen = DetailDescription.SelectionLength;
+
+            if (UrlTitleResolver.IsBareUrl(pasted))
+            {
+                var (text, links, caret) = LinkMarkdownHelper.InsertBareUrl(
+                    DetailDescription.Text ?? "", _descriptionLinks, selStart, selLen, pasted.Trim());
+                ApplyDescriptionEdit(text, links, caret);
+                return;
+            }
+
+            // TextBox 内部换行为 '\r'，统一转换避免索引错位
+            pasted = pasted.Replace("\r\n", "\r").Replace('\n', '\r');
+            var (plainText, plainLinks, plainCaret) = ReplaceDescriptionRange(selStart, selLen, pasted);
+            ApplyDescriptionEdit(plainText, plainLinks, plainCaret);
+        }
+
+        private void DetailDescription_CopyingToClipboard(TextBox sender, TextControlCopyingToClipboardEventArgs args)
+        {
+            if (TrySetClipboardWithLinks())
+                args.Handled = true;
+        }
+
+        private void DetailDescription_CuttingToClipboard(TextBox sender, TextControlCuttingToClipboardEventArgs args)
+        {
+            if (!TrySetClipboardWithLinks())
+                return;
+
+            args.Handled = true;
+            var (text, links, caret) = ReplaceDescriptionRange(
+                DetailDescription.SelectionStart, DetailDescription.SelectionLength, "");
+            ApplyDescriptionEdit(text, links, caret);
+        }
+
+        /// <summary>
+        /// 选区含链接时接管剪贴板：选区在单个链接内 → 纯 URL；
+        /// 混合选区 → 完整覆盖的链接还原为 url[标题]。选区无链接时返回 false 走默认。
+        /// </summary>
+        private bool TrySetClipboardWithLinks()
+        {
+            var output = LinkMarkdownHelper.BuildClipboardText(
+                DetailDescription.Text ?? "", _descriptionLinks,
+                DetailDescription.SelectionStart, DetailDescription.SelectionLength);
+            if (output == null)
+                return false;
+
+            try
+            {
+                var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                dp.SetText(output.Replace("\r", "\r\n"));
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+            }
+            catch
+            {
+                return false;
+            }
+            return true;
         }
 
         private void ScrollToElement(FrameworkElement element)

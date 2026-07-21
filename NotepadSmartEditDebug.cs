@@ -10,7 +10,7 @@ namespace Memo;
 /// </summary>
 public static class NotepadSmartEditDebug
 {
-    public static bool Enabled = true;
+    public static bool Enabled = false;
 
     public static void LogInit(string source)
     {
@@ -96,11 +96,27 @@ public static class NotepadSmartEditDebug
             return string.Empty;
 
         normIndex = Math.Clamp(normIndex, 0, normalizedText.Length);
-        var lineStart = normalizedText.LastIndexOf('\n', Math.Max(0, normIndex - 1));
-        lineStart = lineStart < 0 ? 0 : lineStart + 1;
-        var lineEnd = normalizedText.IndexOf('\n', normIndex);
-        if (lineEnd < 0)
-            lineEnd = normalizedText.Length;
+
+        var lineStart = 0;
+        for (var i = normIndex - 1; i >= 0; i--)
+        {
+            if (normalizedText[i] == '\n')
+            {
+                lineStart = i + 1;
+                break;
+            }
+        }
+
+        var lineEnd = normalizedText.Length;
+        for (var i = normIndex; i < normalizedText.Length; i++)
+        {
+            if (normalizedText[i] == '\n')
+            {
+                lineEnd = i;
+                break;
+            }
+        }
+
         return normalizedText.Substring(lineStart, lineEnd - lineStart);
     }
 

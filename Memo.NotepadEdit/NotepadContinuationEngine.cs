@@ -108,9 +108,10 @@ public static class NotepadContinuationEngine
 
     private static NotepadEditResult ApplyEnterBeforeCurrentLine(string text, int lineStart, LinePrefix currentPrefix)
     {
-        var prevLineStart = GetLineStart(text, lineStart - 1);
-        // lineStart 前必为 '\n'，排除该换行符本身
-        var prevLine = text.Substring(prevLineStart, lineStart - 1 - prevLineStart).TrimEnd('\r');
+        var prevLineStart = GetLineStart(text, Math.Max(0, lineStart - 1));
+        // lineStart 前必为 '\n'（调用方保证 start==lineStart && start>0）；空上一行时长度为 0
+        var prevLength = Math.Max(0, lineStart - 1 - prevLineStart);
+        var prevLine = text.Substring(prevLineStart, prevLength).TrimEnd('\r');
         var prevPrefix = LinePrefixParser.Parse(prevLine);
 
         // 仅当当前行本身也是列表项时才在其上方插入新项（把已有项下推）；
@@ -518,16 +519,15 @@ public static class NotepadContinuationEngine
     private static int GetLineStart(string text, int position)
     {
         position = Math.Clamp(position, 0, text.Length);
+        if (position == 0)
+            return 0;
 
         // 光标在文档末尾且前一个字符是换行 → 空尾行
-        if (position == text.Length && position > 0 && text[position - 1] == '\n')
+        if (position == text.Length && text[position - 1] == '\n')
             return position;
 
-        var probe = position;
-        if (probe == text.Length && probe > 0)
-            probe--;
-
-        var newline = text.LastIndexOf('\n', Math.Max(0, probe - 1));
+        var probe = position == text.Length ? position - 1 : position;
+        var newline = text.LastIndexOf('\n', probe - 1);
         return newline < 0 ? 0 : newline + 1;
     }
 

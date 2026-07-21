@@ -7,7 +7,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid x:Name="RootGrid" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+    <Grid x:Name="RootGrid" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+          PreviewKeyDown="RootGrid_PreviewKeyDown">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -61,6 +62,7 @@
                             Click="PreviewToggle_Click"
                             HorizontalAlignment="Right"
                             Background="Transparent" BorderThickness="0" Padding="4,2"
+                            IsTabStop="False" UseSystemFocusVisuals="False"
                             ToolTipService.ToolTip="切换预览/编辑">
                         <StackPanel Orientation="Horizontal" Spacing="4">
                             <FontIcon x:Name="PreviewToggleIcon" Glyph="&#xE70F;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -71,6 +73,7 @@
 
                 <!-- 内容区（IsReadOnly 切换预览/编辑） -->
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <Grid>
                     <local:NotepadEditTextBox x:Name="Editor"
                              TextWrapping="Wrap"
                              MinHeight="200"
@@ -94,6 +97,20 @@
                             <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorTertiary}"/>
                         </TextBox.Resources>
                     </local:NotepadEditTextBox>
+                    <!-- 预览层：有链接时把链接渲染为 Hyperlink（纯文本元素，支持选择复制且无
+                         InlineUIContainer + 文本选择的崩溃问题，见 microsoft-ui-xaml #5646） -->
+                    <Grid x:Name="PreviewDisplayHost"
+                          Visibility="Collapsed"
+                          Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                        <RichTextBlock x:Name="PreviewDisplay"
+                                       Padding="12,8,12,8"
+                                       FontSize="14"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       IsTextSelectionEnabled="True"
+                                       IsTabStop="False"/>
+                    </Grid>
+                    </Grid>
                 </ScrollViewer>
             </Grid>
         </ScrollViewer>

@@ -4,7 +4,9 @@ using Microsoft.UI.Xaml.Input;
 using System.Collections.ObjectModel;
 using System;
 using System.IO;
-using System.Threading.Tasks;
+using System.Linq;
+using System.Runtime.InteropServices;
+using Microsoft.UI.Windowing;
 using Memo.Models;
 using Memo.Services;
 
@@ -15,11 +17,21 @@ namespace Memo
         private DatabaseService _dbService;
         private ObservableCollection<TaskItem> _tasks;
         private ObservableCollection<TaskItem> _completedTasks;
-        private bool _showCompleted;
-        private bool _isAnimating;
         private bool _isMinimized;
+        private bool _dragging;
+        private bool _resizing;
+        private CursorPoint _lastCursor;
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CursorPoint { public int X; public int Y; }
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetCursorPos(out CursorPoint point);
 
+        private int _expandedHeight = 560;
+        private string _matrixVersion = "";
+        private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _refreshTimer;
         public event Action? ExitRequested;
+        public event Action? TasksChanged;
 
         public event Action<int>? HeightChanged;
 
@@ -35,43 +47,141 @@ namespace Memo
             _tasks = tasks;
             _completedTasks = completedTasks;
 
-            CompactTasksList.ItemsSource = _tasks;
-            CompactCompletedTasksList.ItemsSource = _completedTasks;
+            RefreshMatrix();
+            _refreshTimer = DispatcherQueue.CreateTimer();
+            _refreshTimer.Interval = TimeSpan.FromSeconds(2);
+            _refreshTimer.Tick += (_, _) => RefreshMatrix();
+            _refreshTimer.Start();
 
             Title = "Memo";
             try { this.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "16logo.ico")); } catch { }
 
             // 固定到桌面右下角
             this.SetupPinnedWindow(yOffset);
-            this.Closed += (s, e) => this.StopPinnedWindowGuard();
+            this.Closed += (s, e) =>
+            {
+                _refreshTimer.Stop();
+                SaveBounds();
+                this.StopPinnedWindowGuard();
+            };
         }
 
         private void SetupPinnedWindow(int yOffset = 40)
         {
             this.ApplyCompactWindowStyle();
+            var values = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
+            _isMinimized = values.TryGetValue("Compact_TaskMinimized", out var minimized) && minimized is true;
+            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+            var width = values.TryGetValue("Compact_MatrixWidth", out var w) && w is int savedW ? savedW : 720;
+            _expandedHeight = values.TryGetValue("Compact_MatrixHeight", out var h) && h is int savedH ? savedH : 560;
+            width = Math.Clamp(width, Math.Min(480, area.Width), area.Width);
+            _expandedHeight = Math.Clamp(_expandedHeight, Math.Min(320, area.Height), area.Height);
+            var height = _isMinimized ? 40 : _expandedHeight;
+            var x = values.TryGetValue("Compact_MatrixX", out var sx) && sx is int px ? px : area.X + area.Width - width - 16;
+            var y = values.TryGetValue("Compact_MatrixY", out var sy) && sy is int py ? py : area.Y + area.Height - height - 16;
+            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
+                Math.Clamp(x, area.X, area.X + area.Width - width),
+                Math.Clamp(y, area.Y, area.Y + area.Height - height), width, height));
+            UpdateCollapsedState();
+            this.UpdatePinnedWindowGuard();
+        }
 
-            var settings = Windows.Storage.ApplicationData.Current.LocalSettings;
-            var wasMinimized = settings.Values.TryGetValue("Compact_TaskMinimized", out var val) && val is true;
-            _isMinimized = wasMinimized;
-
-            var appWindow = this.AppWindow;
-            if (appWindow != null)
+        private void RefreshMatrix()
+        {
+            try
             {
-                appWindow.MoveAndResize(new Windows.Graphics.RectInt32
+                var tasks = _dbService.GetActiveTasksForMatrix()
+                    .OrderBy(t => t.DueDate?.Date ?? DateTime.MaxValue).ThenByDescending(t => t.CreatedAt).ToList();
+                var version = string.Join("|", tasks.Select(t => $"{t.Id}:{t.Title}:{t.Quadrant}:{t.DueDate}:{t.DueDateShortDisplay}"));
+                if (version == _matrixVersion && Q1List.ItemsSource != null) return;
+                _matrixVersion = version;
+                var lists = new[] { Q1List, Q2List, Q3List, Q4List };
+                var counts = new[] { Q1Count, Q2Count, Q3Count, Q4Count };
+                var empty = new[] { Q1Empty, Q2Empty, Q3Empty, Q4Empty };
+                for (var i = 0; i < lists.Length; i++)
                 {
-                    X = 1500,
-                    Y = yOffset,
-                    Width = 400,
-                    Height = wasMinimized ? 32 : 480
-                });
-                this.UpdatePinnedWindowGuard();
+                    var items = tasks.Where(t => (int)t.Quadrant == i).ToList();
+                    lists[i].ItemsSource = items;
+                    counts[i].Text = $"{items.Count} 项";
+                    empty[i].Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                }
             }
+            catch (Exception ex) { AppLog.Error($"Compact matrix refresh: {ex}"); }
+        }
 
-            if (wasMinimized)
+        private void SaveBounds()
+        {
+            var values = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
+            values["Compact_MatrixWidth"] = AppWindow.Size.Width;
+            values["Compact_MatrixHeight"] = _expandedHeight;
+            values["Compact_MatrixX"] = AppWindow.Position.X;
+            values["Compact_MatrixY"] = AppWindow.Position.Y;
+        }
+
+        private void UpdateCollapsedState()
+        {
+            MatrixPanel.Visibility = _isMinimized ? Visibility.Collapsed : Visibility.Visible;
+            ResizeGrip.Visibility = _isMinimized ? Visibility.Collapsed : Visibility.Visible;
+            RootGrid.RowDefinitions[2].Height = new GridLength(_isMinimized ? 0 : 16);
+            CompactToggleIcon.Glyph = _isMinimized ? "\uE70D" : "\uE70E";
+        }
+
+        private void Bounds_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (!e.GetCurrentPoint((UIElement)sender).Properties.IsLeftButtonPressed || !GetCursorPos(out _lastCursor)) return;
+            _resizing = ReferenceEquals(sender, ResizeGrip);
+            _dragging = ((UIElement)sender).CapturePointer(e.Pointer);
+            e.Handled = true;
+        }
+
+        private void Bounds_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_dragging || !GetCursorPos(out var cursor)) return;
+            ChangeBounds(cursor.X - _lastCursor.X, cursor.Y - _lastCursor.Y, _resizing);
+            _lastCursor = cursor;
+            e.Handled = true;
+        }
+
+        private void Bounds_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_dragging) return;
+            _dragging = false;
+            ((UIElement)sender).ReleasePointerCapture(e.Pointer);
+            SaveBounds();
+            e.Handled = true;
+        }
+
+        private void Bounds_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_dragging) return;
+            _dragging = false;
+            SaveBounds();
+        }
+
+        private void ChangeBounds(double dx, double dy, bool resize)
+        {
+            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+            const double scale = 1; // GetCursorPos 与 AppWindow 都使用物理像素。
+            var x = AppWindow.Position.X;
+            var y = AppWindow.Position.Y;
+            var width = AppWindow.Size.Width;
+            var height = AppWindow.Size.Height;
+            if (resize)
             {
-                CompactScrollViewer.Visibility = Visibility.Collapsed;
-                CompactToggleIcon.Glyph = "";
+                width = Math.Clamp(width + (int)Math.Round(dx * scale), Math.Min(480, area.Width), area.Width);
+                height = Math.Clamp(height + (int)Math.Round(dy * scale), Math.Min(320, area.Height), area.Height);
+                _expandedHeight = height;
             }
+            else
+            {
+                x += (int)Math.Round(dx * scale);
+                y += (int)Math.Round(dy * scale);
+            }
+            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
+                Math.Clamp(x, area.X, area.X + area.Width - width),
+                Math.Clamp(y, area.Y, area.Y + area.Height - height), width, height));
+            this.UpdatePinnedWindowGuard();
+            HeightChanged?.Invoke(height);
         }
 
         private void SaveMinimizedState()
@@ -86,14 +196,6 @@ namespace Memo
             ExitRequested?.Invoke();
         }
 
-        private void TitleBar_PointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            if (_isMinimized)
-            {
-                ToggleExpand_Click(this, new RoutedEventArgs());
-            }
-        }
-
         private void TitleBar_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             ToggleExpand_Click(this, new RoutedEventArgs());
@@ -103,6 +205,9 @@ namespace Memo
         {
             if (sender is CheckBox cb && cb.DataContext is TaskItem task)
             {
+                // 四象限使用全量查询对象，同步当前主页集合中的同 ID 对象。
+                var sharedTask = _tasks.FirstOrDefault(t => t.Id == task.Id);
+                if (sharedTask != null) sharedTask.IsChecked = cb.IsChecked ?? false;
                 _dbService.UpdateTaskChecked(task.Id, cb.IsChecked ?? false);
 
                 if (cb.IsChecked ?? false)
@@ -156,10 +261,10 @@ namespace Memo
                         ReminderService.Instance.ScheduleReminderNotificationsForTask(newTask.Id);
                     }
 
-                    if (_tasks.Contains(task))
+                    if (sharedTask != null)
                     {
-                        _tasks.Remove(task);
-                        _completedTasks.Add(task);
+                        _tasks.Remove(sharedTask);
+                        _completedTasks.Add(sharedTask);
                     }
                 }
                 else
@@ -170,89 +275,24 @@ namespace Memo
                         _tasks.Add(task);
                     }
                 }
+                RefreshMatrix();
+                TasksChanged?.Invoke();
             }
         }
 
-        private void SubTaskCheckBox_Click(object sender, RoutedEventArgs e)
+        private void ToggleExpand_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is CheckBox cb && cb.DataContext is SubTask subTask)
-            {
-                _dbService.UpdateSubTaskChecked(subTask.Id, subTask.IsChecked);
-            }
-        }
-
-        private void ToggleCompleted_Click(object sender, RoutedEventArgs e)
-        {
-            _showCompleted = !_showCompleted;
-            CompactCompletedTasksList.Visibility = _showCompleted ? Visibility.Visible : Visibility.Collapsed;
-            CompactCompletedArrow.Glyph = _showCompleted ? "" : "";
-        }
-
-        private async void ToggleExpand_Click(object sender, RoutedEventArgs e)
-        {
-            if (_isAnimating) return;
-            var appWindow = this.AppWindow;
-            if (appWindow == null) return;
-
-            if (!_isMinimized)
-            {
-                _isAnimating = true;
-                await AnimateWindowSize(480, 40, 200);
-                CompactScrollViewer.Visibility = Visibility.Collapsed;
-                CompactToggleIcon.Glyph = "";
-                _isMinimized = true;
-                _isAnimating = false;
-                SaveMinimizedState();
-            }
-            else
-            {
-                _isAnimating = true;
-                CompactScrollViewer.Visibility = Visibility.Visible;
-                CompactToggleIcon.Glyph = "";
-                await AnimateWindowSize(40, 480, 200);
-                _isMinimized = false;
-                _isAnimating = false;
-                SaveMinimizedState();
-            }
-        }
-
-        private async Task AnimateWindowSize(int fromHeight, int toHeight, int durationMs)
-        {
-            var appWindow = this.AppWindow;
-            if (appWindow == null) return;
-
-            const int frameDurationMs = 16;
-            int totalFrames = (int)Math.Ceiling((double)durationMs / frameDurationMs);
-
-            var pos = appWindow.Position;
-            var width = appWindow.Size.Width;
-
-            for (int i = 1; i <= totalFrames; i++)
-            {
-                double t = (double)i / totalFrames;
-                double easeT = 1 - Math.Pow(1 - t, 3);
-                int currentHeight = fromHeight + (int)Math.Round((toHeight - fromHeight) * easeT);
-                appWindow.MoveAndResize(new Windows.Graphics.RectInt32
-                {
-                    X = pos.X,
-                    Y = pos.Y,
-                    Width = width,
-                    Height = currentHeight
-                });
-                this.UpdatePinnedWindowGuard();
-                HeightChanged?.Invoke(currentHeight);
-                await Task.Delay(frameDurationMs);
-            }
-
-            appWindow.MoveAndResize(new Windows.Graphics.RectInt32
-            {
-                X = pos.X,
-                Y = pos.Y,
-                Width = width,
-                Height = toHeight
-            });
+            if (!_isMinimized) _expandedHeight = AppWindow.Size.Height;
+            _isMinimized = !_isMinimized;
+            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+            var height = _isMinimized ? 40 : Math.Min(_expandedHeight, area.Height);
+            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(AppWindow.Position.X,
+                Math.Clamp(AppWindow.Position.Y, area.Y, area.Y + area.Height - height), AppWindow.Size.Width, height));
+            UpdateCollapsedState();
             this.UpdatePinnedWindowGuard();
-            HeightChanged?.Invoke(toHeight);
+            SaveMinimizedState();
+            SaveBounds();
+            HeightChanged?.Invoke(height);
         }
 
         private static DateTime CalculateNextRecurringDueDate(RecurrenceType recurrenceType, DateTime currentDueDate)

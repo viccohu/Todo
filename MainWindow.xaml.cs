@@ -2867,11 +2867,11 @@ namespace Memo
         private string? _taskCompactPageTag;
 
         private bool IsCurrentPageCompactSupported =>
-            _currentNavTag is "Important" or "Daily" or "Weekly" or "Monthly"
+            _currentNavTag is "Matrix" or "Important" or "Daily" or "Weekly" or "Monthly"
                 or "StandaloneList" or "GroupList" or "Group" or "Notepad";
 
         private bool IsCurrentPageCompactOpen =>
-            _currentNavTag == "Notepad" ? _notepadCompactWindow != null : _taskCompactWindow != null && _taskCompactPageTag == _currentNavTag;
+            _currentNavTag == "Notepad" ? _notepadCompactWindow != null : _taskCompactWindow != null;
 
         private void ToggleDesktopMode_Click(object sender, RoutedEventArgs e)
         {
@@ -2929,6 +2929,7 @@ namespace Memo
             else
             {
                 _taskCompactWindow = new CompactWindow(Tasks, CompletedTasks, _dbService, yOffset);
+                _taskCompactWindow.TasksChanged += RefreshMatrixIfVisible;
                 _taskCompactPageTag = _currentNavTag;
                 _taskCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _taskCompactWindow.ExitRequested += () =>
@@ -2961,65 +2962,31 @@ namespace Memo
 
         private void RepositionCompactWindows()
         {
-            const int x = 1500;
-            const int topY = 40;
             const int gap = 12;
-            var appWindow = this.AppWindow;
-
-            // 确定哪一个是上方窗口（先创建的在上面）
-            if (_taskCompactWindow != null && _notepadCompactWindow != null)
+            var task = _taskCompactWindow?.AppWindow;
+            var note = _notepadCompactWindow?.AppWindow;
+            if (note == null) return;
+            var area = DisplayArea.GetFromWindowId(task?.Id ?? note.Id, DisplayAreaFallback.Primary).WorkArea;
+            var width = Math.Min(task?.Size.Width ?? note.Size.Width, area.Width);
+            var height = Math.Min(note.Size.Height, area.Height);
+            var x = note.Position.X;
+            var y = note.Position.Y;
+            if (task != null && !_notepadCompactWindow!.HasCustomPosition)
             {
-                // 任务窗口在上，记事本在下
-                var taskAppWindow = _taskCompactWindow.AppWindow;
-                var notepadAppWindow = _notepadCompactWindow.AppWindow;
-
-                if (taskAppWindow != null)
-                {
-                    taskAppWindow.MoveAndResize(new Windows.Graphics.RectInt32
-                    {
-                        X = x, Y = topY,
-                        Width = taskAppWindow.Size.Width,
-                        Height = taskAppWindow.Size.Height
-                    });
-                    _taskCompactWindow.UpdatePinnedWindowGuard();
-                }
-
-                if (notepadAppWindow != null)
-                {
-                    var taskHeight = taskAppWindow?.Size.Height ?? 480;
-                    notepadAppWindow.MoveAndResize(new Windows.Graphics.RectInt32
-                    {
-                        X = x, Y = topY + taskHeight + gap,
-                        Width = notepadAppWindow.Size.Width,
-                        Height = notepadAppWindow.Size.Height
-                    });
-                    _notepadCompactWindow.UpdatePinnedWindowGuard();
-                }
+                // 默认上下同宽排列；必要时缩短窗口并整体上移，确保两窗均在工作区内。
+                var noteMinimum = Math.Min(height, 160);
+                var taskHeight = Math.Min(task.Size.Height, Math.Max(40, area.Height - noteMinimum - gap));
+                height = Math.Min(height, Math.Max(40, area.Height - taskHeight - gap));
+                x = Math.Clamp(task.Position.X, area.X, area.X + area.Width - width);
+                var taskY = Math.Clamp(task.Position.Y, area.Y, Math.Max(area.Y, area.Y + area.Height - taskHeight - gap - height));
+                task.MoveAndResize(new Windows.Graphics.RectInt32(x, taskY, width, taskHeight));
+                _taskCompactWindow!.UpdatePinnedWindowGuard();
+                y = taskY + taskHeight + gap;
             }
-            else if (_taskCompactWindow != null)
-            {
-                var w = _taskCompactWindow.AppWindow;
-                if (w != null)
-                    w.MoveAndResize(new Windows.Graphics.RectInt32
-                    {
-                        X = x, Y = topY,
-                        Width = w.Size.Width,
-                        Height = w.Size.Height
-                    });
-                _taskCompactWindow.UpdatePinnedWindowGuard();
-            }
-            else if (_notepadCompactWindow != null)
-            {
-                var w = _notepadCompactWindow.AppWindow;
-                if (w != null)
-                    w.MoveAndResize(new Windows.Graphics.RectInt32
-                    {
-                        X = x, Y = topY,
-                        Width = w.Size.Width,
-                        Height = w.Size.Height
-                    });
-                _notepadCompactWindow.UpdatePinnedWindowGuard();
-            }
+            note.MoveAndResize(new Windows.Graphics.RectInt32(
+                Math.Clamp(x, area.X, area.X + area.Width - width),
+                Math.Clamp(y, area.Y, area.Y + area.Height - height), width, height));
+            _notepadCompactWindow!.UpdatePinnedWindowGuard();
         }
 
         private void ExitPinnedMode()
@@ -3065,6 +3032,7 @@ namespace Memo
             if (settings.Values.TryGetValue("Compact_Task", out var taskVal) && taskVal is true)
             {
                 _taskCompactWindow = new CompactWindow(Tasks, CompletedTasks, _dbService);
+                _taskCompactWindow.TasksChanged += RefreshMatrixIfVisible;
                 _taskCompactPageTag = _currentNavTag;
                 _taskCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _taskCompactWindow.ExitRequested += () =>

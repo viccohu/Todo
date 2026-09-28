@@ -3,6 +3,8 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.Runtime.InteropServices;
+using Microsoft.UI.Windowing;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -22,6 +24,15 @@ namespace Memo
         private NotepadTab? _currentTab;
         private bool _isPreviewMode = true;
         private bool _isTabSwitching;
+        public bool HasCustomPosition { get; private set; }
+        private bool _dragging;
+        private CursorPoint _lastCursor;
+        private int _expandedHeight = 480;
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CursorPoint { public int X; public int Y; }
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetCursorPos(out CursorPoint point);
 
         // 误关闭恢复
         private NotepadTab? _closedTab;
@@ -63,12 +74,15 @@ namespace Memo
             var appWindow = this.AppWindow;
             if (appWindow != null)
             {
+                var area = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+                var width = Math.Min(720, area.Width);
+                var height = Math.Min(wasMinimized ? 40 : 480, area.Height);
                 appWindow.MoveAndResize(new Windows.Graphics.RectInt32
                 {
-                    X = 1500,
-                    Y = yOffset,
-                    Width = 400,
-                    Height = wasMinimized ? 40 : 480
+                    X = area.X + area.Width - width,
+                    Y = area.Y + area.Height - height,
+                    Width = width,
+                    Height = height
                 });
                 this.UpdatePinnedWindowGuard();
             }
@@ -202,8 +216,35 @@ namespace Memo
 
         private void TitleBar_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (_isMinimized)
-                ToggleExpand_Click(this, new RoutedEventArgs());
+            if (!e.GetCurrentPoint((UIElement)sender).Properties.IsLeftButtonPressed || !GetCursorPos(out _lastCursor)) return;
+            _dragging = ((UIElement)sender).CapturePointer(e.Pointer);
+        }
+
+        private void TitleBar_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_dragging || !GetCursorPos(out var cursor)) return;
+            var dx = cursor.X - _lastCursor.X;
+            var dy = cursor.Y - _lastCursor.Y;
+            if (dx == 0 && dy == 0) return;
+            HasCustomPosition = true;
+            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+            AppWindow.Move(new Windows.Graphics.PointInt32(
+                Math.Clamp(AppWindow.Position.X + dx, area.X, area.X + Math.Max(0, area.Width - AppWindow.Size.Width)),
+                Math.Clamp(AppWindow.Position.Y + dy, area.Y, area.Y + Math.Max(0, area.Height - AppWindow.Size.Height))));
+            _lastCursor = cursor;
+            this.UpdatePinnedWindowGuard();
+            e.Handled = true;
+        }
+
+        private void TitleBar_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            _dragging = false;
+            ((UIElement)sender).ReleasePointerCapture(e.Pointer);
+        }
+
+        private void TitleBar_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            _dragging = false;
         }
 
         private void TitleBar_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
@@ -659,75 +700,21 @@ namespace Memo
         private static bool IsCtrlPressed() => (GetKeyState(0x11) & 0x8000) != 0;
 
         private bool _isMinimized;
-        private bool _isAnimating;
 
-        private async void ToggleExpand_Click(object sender, RoutedEventArgs e)
+        private void ToggleExpand_Click(object sender, RoutedEventArgs e)
         {
-            if (_isAnimating) return;
-            var appWindow = this.AppWindow;
-            if (appWindow == null) return;
-
-            if (!_isMinimized)
-            {
-                _isAnimating = true;
-                await AnimateWindowSize(480, 40, 200);
-                ContentScrollViewer.Visibility = Visibility.Collapsed;
-                NotepadTabView.Visibility = Visibility.Collapsed;
-                ToggleExpandIcon.Glyph = "";
-                _isMinimized = true;
-                _isAnimating = false;
-                SaveMinimizedState();
-            }
-            else
-            {
-                _isAnimating = true;
-                NotepadTabView.Visibility = Visibility.Visible;
-                ContentScrollViewer.Visibility = Visibility.Visible;
-                ToggleExpandIcon.Glyph = "";
-                await AnimateWindowSize(40, 480, 200);
-                _isMinimized = false;
-                _isAnimating = false;
-                SaveMinimizedState();
-            }
-        }
-
-        private async Task AnimateWindowSize(int fromHeight, int toHeight, int durationMs)
-        {
-            var appWindow = this.AppWindow;
-            if (appWindow == null) return;
-
-            const int frameDurationMs = 16;
-            int totalFrames = (int)Math.Ceiling((double)durationMs / frameDurationMs);
-
-            var pos = appWindow.Position;
-            var width = appWindow.Size.Width;
-
-            for (int i = 1; i <= totalFrames; i++)
-            {
-                double t = (double)i / totalFrames;
-                double easeT = 1 - Math.Pow(1 - t, 3);
-                int currentHeight = fromHeight + (int)Math.Round((toHeight - fromHeight) * easeT);
-                appWindow.MoveAndResize(new Windows.Graphics.RectInt32
-                {
-                    X = pos.X,
-                    Y = pos.Y,
-                    Width = width,
-                    Height = currentHeight
-                });
-                this.UpdatePinnedWindowGuard();
-                HeightChanged?.Invoke(currentHeight);
-                await Task.Delay(frameDurationMs);
-            }
-
-            appWindow.MoveAndResize(new Windows.Graphics.RectInt32
-            {
-                X = pos.X,
-                Y = pos.Y,
-                Width = width,
-                Height = toHeight
-            });
+            if (!_isMinimized) _expandedHeight = AppWindow.Size.Height;
+            _isMinimized = !_isMinimized;
+            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+            var height = Math.Min(_isMinimized ? 40 : _expandedHeight, area.Height);
+            ContentScrollViewer.Visibility = _isMinimized ? Visibility.Collapsed : Visibility.Visible;
+            NotepadTabView.Visibility = _isMinimized ? Visibility.Collapsed : Visibility.Visible;
+            ToggleExpandIcon.Glyph = _isMinimized ? "\uE96E" : "\uE96D";
+            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(AppWindow.Position.X,
+                Math.Clamp(AppWindow.Position.Y, area.Y, area.Y + area.Height - height), AppWindow.Size.Width, height));
             this.UpdatePinnedWindowGuard();
-            HeightChanged?.Invoke(toHeight);
+            SaveMinimizedState();
+            HeightChanged?.Invoke(height);
         }
         private void SyncTabOrder()
         {

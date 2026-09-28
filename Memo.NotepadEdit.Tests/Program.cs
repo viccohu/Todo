@@ -3,6 +3,9 @@ using Memo;
 
 var tests = new (string Name, Action Test)[]
 {
+    ("empty nested item climbs levels", EmptyNestedItemClimbs),
+    ("empty nested deletion removes only marker", EmptyNestedDeletion),
+    ("empty item follows parent style", EmptyItemParentStyle),
     ("nested parent numbering", NestedParentNumbering),
     ("nested child numbering stays in parent", NestedChildNumbering),
     ("nested parent start insertion", NestedParentStartInsertion),
@@ -75,6 +78,43 @@ Console.WriteLine($"Passed {tests.Length} notepad edit tests.");
 static NotepadEditResult Apply(NotepadEditCommand command, string text, int start, int length = 0) =>
     NotepadContinuationEngine.Apply(command, new NotepadEditState(text, start, length));
 
+static void EmptyNestedItemClimbs()
+{
+    const string text = "1. parent\n    1. child\n        1. \n    2. sibling\n2. next";
+    var caret = text.IndexOf("        1. ") + 11;
+    var first = Apply(NotepadEditCommand.Enter, text, caret);
+    const string expected = "1. parent\n    1. child\n    2. \n    3. sibling\n2. next";
+    Result(first, expected, expected.IndexOf("    2. ") + 7, 0, "promote to child sibling");
+    var second = Apply(NotepadEditCommand.Enter, first.Text, first.SelectionStart);
+    const string promoted = "1. parent\n    1. child\n2. \n    2. sibling\n3. next";
+    Result(second, promoted, promoted.IndexOf("\n2. ") + 4, 0, "promote to parent sibling");
+    var third = Apply(NotepadEditCommand.Enter, second.Text, second.SelectionStart);
+    Result(third, "1. parent\n    1. child\n\n    2. sibling\n2. next", promoted.IndexOf("\n2. ") + 1, 0, "exit top level");
+}
+
+static void EmptyNestedDeletion()
+{
+    const string text = "1. parent\n    1. \n    2. next";
+    var caret = text.IndexOf("    1. ") + 7;
+    foreach (var command in new[] { NotepadEditCommand.Backspace, NotepadEditCommand.Delete })
+        Result(Apply(command, text, caret), "1. parent\n    \n    1. next", caret - 3, 0, "remove marker without promoting");
+    Result(Apply(NotepadEditCommand.PlainEnter, "1. p\n    1. ", 12), "1. p\n    1. \n", 13, 0, "shift enter bypasses promotion");
+}
+
+static void EmptyItemParentStyle()
+{
+    foreach (var pair in new[] { ("一、父项", "二、 "), ("- [x] parent", "- [ ] "), ("- parent", "- ") })
+    {
+        var text = pair.Item1 + "\n  1. ";
+        var expected = pair.Item1 + "\n" + pair.Item2;
+        Result(Apply(NotepadEditCommand.Enter, text, text.Length), expected, expected.Length, 0, "inherit parent style");
+    }
+    const string tabs = "1. p\n\t1. c\n\t\t1. ";
+    const string result = "1. p\n\t1. c\n\t2. ";
+    Result(Apply(NotepadEditCommand.Enter, tabs, tabs.Length), result, result.Length, 0, "tab nesting");
+    Result(Apply(NotepadEditCommand.Enter, "    1. ", 7), "1. ", 3, 0, "orphan falls back one indent");
+}
+
 static void NestedParentNumbering()
 {
     const string text = "3. a\n    1. child\n    - detail\n4. b\n5. c\n\n9. separate";
@@ -118,7 +158,8 @@ static void CheckboxContinuation()
         var expected = text + "\n    " + marker[0] + " [ ] ";
         Result(Apply(NotepadEditCommand.Enter, text, text.Length), expected, expected.Length, 0, "unchecked new checkbox");
         var empty = "    " + marker;
-        Result(Apply(NotepadEditCommand.Enter, empty, empty.Length), "    ", 4, 0, "exit empty checkbox");
+        var promoted = marker[0] + " [ ] ";
+        Result(Apply(NotepadEditCommand.Enter, empty, empty.Length), promoted, promoted.Length, 0, "outdent orphan checkbox");
         Result(Apply(NotepadEditCommand.Backspace, empty, empty.Length), "    ", 4, 0, "remove empty checkbox");
     }
     Result(Apply(NotepadEditCommand.Enter, "- [x] abcd", 8), "- [x] ab\n- [ ] cd", 15, 0, "split checkbox");

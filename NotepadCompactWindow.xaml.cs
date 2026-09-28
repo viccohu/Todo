@@ -474,7 +474,6 @@ namespace Memo
 
                 Editor.Visibility = Visibility.Visible;
                 Editor.ApplyEditorTheme();
-                Editor.ResetUndoHistory();
                 Editor.Focus(FocusState.Programmatic);
                 Editor.SelectionStart = (Editor.Text ?? string.Empty).Length;
             }

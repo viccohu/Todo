@@ -13,7 +13,9 @@ public static class NotepadContinuationEngine
         return command switch
         {
             NotepadEditCommand.Enter => ApplyEnter(state),
+            NotepadEditCommand.PlainEnter => ApplyPlainEnter(state),
             NotepadEditCommand.Backspace => ApplyBackspace(state),
+            NotepadEditCommand.Delete => ApplyDelete(state),
             NotepadEditCommand.Tab => ApplyIndent(state, indent: true),
             NotepadEditCommand.ShiftTab => ApplyIndent(state, indent: false),
             _ => Unhandled(state)
@@ -48,6 +50,9 @@ public static class NotepadContinuationEngine
         var fullLine = text.Substring(lineStart, lineEnd - lineStart).TrimEnd('\r');
         var prefix = LinePrefixParser.Parse(fullLine);
 
+        if (prefix.HasMarker && prefix.IsContentEmpty)
+            return ExitEmptyItem(text, lineStart, lineEnd, prefix, promote: true);
+
         // 光标在行首且非首行：在当前行上方插入新列表项/新行
         if (start == lineStart && start > 0)
             return ApplyEnterBeforeCurrentLine(text, lineStart, prefix);
@@ -56,15 +61,6 @@ public static class NotepadContinuationEngine
 
         if (prefix.HasMarker)
         {
-            if (prefix.IsContentEmpty)
-            {
-                var removeLength = fullLine.Length - prefix.LeadingWhitespace.Length;
-                text = text.Remove(lineStart + prefix.LeadingWhitespace.Length, removeLength);
-                var caret = lineStart + prefix.LeadingWhitespace.Length;
-                text = RenumberBlockBelowAfterMarkerRemoved(text, prefix, ref caret);
-                return HandledResult(text, caret);
-            }
-
             var nextMarker = prefix.LeadingWhitespace + LinePrefixParser.NextMarker(prefix);
             if (afterCaret.Length > 0)
             {
@@ -106,6 +102,41 @@ public static class NotepadContinuationEngine
         return HandledResult(text, start + 1);
     }
 
+    private static NotepadEditResult ApplyPlainEnter(NotepadEditState state)
+    {
+        var text = DeleteSelection(state, out var start).Insert(start, "\n");
+        return HandledResult(text, start + 1);
+    }
+
+    private static NotepadEditResult ExitEmptyItem(string text, int lineStart, int lineEnd, LinePrefix prefix, bool promote)
+    {
+        var replacement = prefix.LeadingWhitespace;
+        if (promote && prefix.LeadingWhitespace.Length > 0)
+        {
+            // 按实际父项定位层级，兼容两空格、制表符及混合列表样式。
+            LinePrefix? parent = null;
+            var lines = SplitLines(text);
+            for (var i = GetLineIndex(text, lineStart) - 1; i >= 0; i--)
+            {
+                var candidate = LinePrefixParser.Parse(lines[i]);
+                if (!candidate.HasMarker && candidate.IsContentEmpty) break;
+                if (candidate.LeadingWhitespace.Length >= prefix.LeadingWhitespace.Length) continue;
+                if (candidate.HasMarker && IsDescendant(candidate, prefix)) parent = candidate;
+                break;
+            }
+            replacement = parent is { } p
+                ? p.LeadingWhitespace + LinePrefixParser.NextMarker(p)
+                : RemoveOneIndentLevel(prefix.LeadingWhitespace) + prefix.MarkerText;
+        }
+
+        text = text.Remove(lineStart, lineEnd - lineStart).Insert(lineStart, replacement);
+        var caret = lineStart + replacement.Length;
+        text = RenumberBlockBelowAfterMarkerRemoved(text, prefix, ref caret);
+        if (promote)
+            text = RenumberOrderedListBlock(text, lineStart, ref caret);
+        return HandledResult(text, caret);
+    }
+
     private static NotepadEditResult ApplyEnterBeforeCurrentLine(string text, int lineStart, LinePrefix currentPrefix)
     {
         var prevLineStart = GetLineStart(text, Math.Max(0, lineStart - 1));
@@ -118,7 +149,9 @@ public static class NotepadContinuationEngine
         // 当前行为空行/普通文本时按普通换行处理，否则退出列表后再回车会反复生成新序号
         if (prevPrefix.HasMarker && currentPrefix.HasMarker)
         {
-            var newMarker = prevPrefix.LeadingWhitespace + LinePrefixParser.NextMarker(prevPrefix);
+            var newMarker = IsDescendant(currentPrefix, prevPrefix)
+                ? currentPrefix.LeadingWhitespace + currentPrefix.MarkerText
+                : prevPrefix.LeadingWhitespace + LinePrefixParser.NextMarker(prevPrefix);
             text = text.Insert(lineStart, newMarker + "\n");
             var caret = lineStart + newMarker.Length;
             text = RenumberOrderedListBlock(text, lineStart, ref caret);
@@ -152,9 +185,7 @@ public static class NotepadContinuationEngine
         if (!LinePrefixParser.IsOrderedKind(anchor.MarkerKind))
             return text;
 
-        var blockStart = lineIndex;
-        while (blockStart > 0 && SameOrderedBlock(anchor, LinePrefixParser.Parse(lines[blockStart - 1])))
-            blockStart--;
+        var blockStart = FindOrderedBlockStart(lines, lineIndex, anchor);
 
         anchor = LinePrefixParser.Parse(lines[blockStart]);
         var number = startNumber ?? Math.Max(1, LinePrefixParser.GetOrderedIndex(anchor));
@@ -162,6 +193,8 @@ public static class NotepadContinuationEngine
         for (var i = blockStart; i < lines.Count; i++)
         {
             var parsed = LinePrefixParser.Parse(lines[i]);
+            if (IsDescendant(anchor, parsed))
+                continue;
             if (!SameOrderedBlock(anchor, parsed))
                 break;
             var renumbered = LinePrefixParser.RenumberLine(lines[i], number++);
@@ -216,6 +249,24 @@ public static class NotepadContinuationEngine
         && candidate.MarkerKind == anchor.MarkerKind
         && candidate.LeadingWhitespace == anchor.LeadingWhitespace;
 
+    private static bool IsDescendant(LinePrefix anchor, LinePrefix candidate) =>
+        candidate.LeadingWhitespace.Length > anchor.LeadingWhitespace.Length
+        && candidate.LeadingWhitespace.StartsWith(anchor.LeadingWhitespace, StringComparison.Ordinal)
+        && (candidate.HasMarker || !candidate.IsContentEmpty);
+
+    private static int FindOrderedBlockStart(List<string> lines, int lineIndex, LinePrefix anchor)
+    {
+        var start = lineIndex;
+        for (var i = lineIndex - 1; i >= 0; i--)
+        {
+            var candidate = LinePrefixParser.Parse(lines[i]);
+            if (IsDescendant(anchor, candidate)) continue;
+            if (!SameOrderedBlock(anchor, candidate)) break;
+            start = i;
+        }
+        return start;
+    }
+
     private static List<string> SplitLines(string text)
     {
         if (text.Length == 0)
@@ -258,8 +309,27 @@ public static class NotepadContinuationEngine
             // 用于块首项被删或删除后留下空行断开列表时的续排
             var blockStartNumber = GetOrderedBlockStartNumber(state.Text, state.SelectionStart);
             var selectionLineNumber = GetOrderedLineNumber(state.Text, state.SelectionStart);
+            var originalPrefix = LinePrefixParser.Parse(GetLineAtIndex(state.Text, GetLineIndex(state.Text, state.SelectionStart)));
             var text = DeleteSelection(state, out var deleteStart);
             var caret = deleteStart;
+            if (LinePrefixParser.IsOrderedKind(originalPrefix.MarkerKind))
+            {
+                var probe = GetLineStart(text, caret);
+                var candidate = LinePrefixParser.Parse(GetLineAtIndex(text, GetLineIndex(text, probe)));
+                if (IsDescendant(originalPrefix, candidate))
+                {
+                    while (IsDescendant(originalPrefix, candidate))
+                    {
+                        var end = GetLineEnd(text, probe);
+                        if (end == text.Length) return HandledResult(text, caret);
+                        probe = end + 1;
+                        candidate = LinePrefixParser.Parse(GetLineAtIndex(text, GetLineIndex(text, probe)));
+                    }
+                    if (SameOrderedBlock(originalPrefix, candidate))
+                        text = RenumberOrderedListBlock(text, probe, ref caret, blockStartNumber);
+                    return HandledResult(text, caret);
+                }
+            }
             text = RenumberAroundCaret(text, ref caret, blockStartNumber, selectionLineNumber);
             return HandledResult(text, caret);
         }
@@ -275,6 +345,9 @@ public static class NotepadContinuationEngine
 
         var lineEnd = GetLineEnd(text2, start);
         var fullLine = text2.Substring(lineStart, lineEnd - lineStart).TrimEnd('\r');
+        var fullPrefix = LinePrefixParser.Parse(fullLine);
+        if (fullPrefix.HasMarker && fullPrefix.IsContentEmpty && start > lineStart + fullPrefix.LeadingWhitespace.Length)
+            return ExitEmptyItem(text2, lineStart, lineEnd, fullPrefix, promote: false);
         var leadingLen = GetLeadingWhitespaceLength(fullLine);
         if (leadingLen > 0 && start > lineStart && start <= lineStart + leadingLen)
             return ApplyBackspaceOutdent(text2, lineStart, lineEnd, start, fullLine);
@@ -340,6 +413,27 @@ public static class NotepadContinuationEngine
         return Unhandled(state);
     }
 
+    private static NotepadEditResult ApplyDelete(NotepadEditState state)
+    {
+        if (state.SelectionLength > 0)
+            return ApplyBackspace(state);
+
+        var start = state.SelectionStart;
+        var lineStart = GetLineStart(state.Text, start);
+        var lineEnd = GetLineEnd(state.Text, start);
+        var prefix = LinePrefixParser.Parse(state.Text.Substring(lineStart, lineEnd - lineStart));
+        if (prefix.HasMarker && prefix.IsContentEmpty && start >= lineStart + prefix.LeadingWhitespace.Length)
+            return ExitEmptyItem(state.Text, lineStart, lineEnd, prefix, promote: false);
+        if (start >= state.Text.Length || state.Text[start] != '\n')
+            return Unhandled(state);
+
+        var blockStartNumber = GetOrderedBlockStartNumber(state.Text, start);
+        var text = state.Text.Remove(start, 1);
+        var caret = start;
+        text = RenumberAroundCaret(text, ref caret, blockStartNumber);
+        return HandledResult(text, caret);
+    }
+
     /// <summary>删除有序标记后，紧邻下一行的同级列表块以被删项的序号续排。</summary>
     private static string RenumberBlockBelowAfterMarkerRemoved(string text, LinePrefix removedPrefix, ref int caret)
     {
@@ -352,6 +446,13 @@ public static class NotepadContinuationEngine
 
         var nextLineStart = currentLineEnd + 1;
         var nextLine = text.Substring(nextLineStart, GetLineEnd(text, nextLineStart) - nextLineStart).TrimEnd('\r');
+        while (IsDescendant(removedPrefix, LinePrefixParser.Parse(nextLine)))
+        {
+            var end = GetLineEnd(text, nextLineStart);
+            if (end >= text.Length) return text;
+            nextLineStart = end + 1;
+            nextLine = text.Substring(nextLineStart, GetLineEnd(text, nextLineStart) - nextLineStart).TrimEnd('\r');
+        }
         if (!SameOrderedBlock(removedPrefix, LinePrefixParser.Parse(nextLine)))
             return text;
 
@@ -387,9 +488,7 @@ public static class NotepadContinuationEngine
         if (!LinePrefixParser.IsOrderedKind(anchor.MarkerKind))
             return null;
 
-        var blockStart = lineIndex;
-        while (blockStart > 0 && SameOrderedBlock(anchor, LinePrefixParser.Parse(lines[blockStart - 1])))
-            blockStart--;
+        var blockStart = FindOrderedBlockStart(lines, lineIndex, anchor);
 
         return Math.Max(1, LinePrefixParser.GetOrderedIndex(LinePrefixParser.Parse(lines[blockStart])));
     }
@@ -447,7 +546,7 @@ public static class NotepadContinuationEngine
             var delta = newLine.Length - line.Length;
             var effectiveCaret = caret < lineStart ? lineStart : Math.Min(caret, lineEnd);
             var offsetInLine = effectiveCaret - lineStart;
-            var newCaret = lineStart + offsetInLine + delta;
+            var newCaret = lineStart + Math.Max(0, offsetInLine + delta);
             return HandledResult(text, newCaret, 0);
         }
 
@@ -455,13 +554,21 @@ public static class NotepadContinuationEngine
         var block = text.Substring(blockStart, blockEnd - blockStart);
         var lines = block.Split('\n');
         var useTabBlock = lines.Any(l => l.TrimEnd('\r').StartsWith('\t'));
+        var selectionStart = state.SelectionStart;
+        var selectionEnd = selectionStart + state.SelectionLength;
+        var editStart = blockStart;
 
         for (var i = 0; i < lines.Length; i++)
         {
+            var oldLength = lines[i].Length;
             var hadCr = lines[i].EndsWith('\r');
             var lineContent = lines[i].TrimEnd('\r');
             lineContent = indent ? AddOneIndentLevel(lineContent, useTabBlock) : RemoveOneIndentLevel(lineContent);
             lines[i] = lineContent + (hadCr ? "\r" : string.Empty);
+            var delta = lines[i].Length - oldLength;
+            selectionStart = MapIndentPosition(selectionStart, editStart, delta, keepAtStart: true);
+            selectionEnd = MapIndentPosition(selectionEnd, editStart, delta, keepAtStart: false);
+            editStart += lines[i].Length + 1;
         }
 
         var newBlock = string.Join("\n", lines);
@@ -469,8 +576,13 @@ public static class NotepadContinuationEngine
             return indent ? Unhandled(state) : LimitReachedResult(state);
 
         text = text.Remove(blockStart, blockEnd - blockStart).Insert(blockStart, newBlock);
-        var deltaBlock = newBlock.Length - block.Length;
-        return HandledResult(text, state.SelectionStart, state.SelectionLength + deltaBlock);
+        return HandledResult(text, selectionStart, Math.Max(0, selectionEnd - selectionStart));
+    }
+
+    private static int MapIndentPosition(int position, int lineStart, int delta, bool keepAtStart)
+    {
+        if (position < lineStart || (keepAtStart && position == lineStart)) return position;
+        return delta >= 0 ? position + delta : Math.Max(lineStart, position + delta);
     }
 
     private static string AddOneIndentLevel(string line, bool useTab) =>

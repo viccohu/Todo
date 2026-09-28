@@ -33,14 +33,15 @@ namespace Memo
             string displayText,
             IReadOnlyList<(string title, string url, int displayIndex, int displayLength)> links)
         {
-            RenderCore(target, displayText, links, (title, url) => CreateHyperlink(title, url));
+            RenderCore(target, displayText, links, (title, url) => CreateHyperlink(title, url), breakAfterTrailingLink: true);
         }
 
         private static void RenderCore(
             RichTextBlock target,
             string displayText,
             IReadOnlyList<(string title, string url, int displayIndex, int displayLength)> links,
-            Func<string, string, Inline> createLinkInline)
+            Func<string, string, Inline> createLinkInline,
+            bool breakAfterTrailingLink = false)
         {
             target.Blocks.Clear();
             var paragraph = new Paragraph();
@@ -59,6 +60,11 @@ namespace Memo
                 paragraph.Inlines.Add(createLinkInline(
                     LinkMarkdownHelper.PreviewLabel(link.title, link.url), link.url));
                 cursor = link.displayIndex + link.displayLength;
+
+                // WinUI 会把文档末尾 Hyperlink 的命中范围延伸到该行剩余空白处。
+                // 只在预览渲染层补一行，截断命中范围；原文与保存内容保持不变。
+                if (breakAfterTrailingLink && cursor == text.Length)
+                    paragraph.Inlines.Add(new LineBreak());
             }
             AppendRuns(paragraph, text[cursor..]);
 

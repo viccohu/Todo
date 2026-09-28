@@ -151,10 +151,13 @@ public static class NotepadSmartEditHelper
             return null;
 
         if (e.Key == VirtualKey.Enter)
-            return NotepadEditCommand.Enter;
+            return IsShiftPressed() ? NotepadEditCommand.PlainEnter : NotepadEditCommand.Enter;
 
         if (e.Key == VirtualKey.Back)
             return NotepadEditCommand.Backspace;
+
+        if (e.Key == VirtualKey.Delete)
+            return NotepadEditCommand.Delete;
 
         if (e.Key == VirtualKey.Tab)
             return IsShiftPressed() ? NotepadEditCommand.ShiftTab : NotepadEditCommand.Tab;

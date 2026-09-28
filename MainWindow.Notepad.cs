@@ -557,7 +557,6 @@ namespace Memo
 
                 NotepadEditor.Visibility = Visibility.Visible;
                 NotepadEditor.ApplyEditorTheme();
-                NotepadEditor.ResetUndoHistory();
                 NotepadEditor.Focus(FocusState.Programmatic);
                 NotepadEditor.SelectionStart = (NotepadEditor.Text ?? string.Empty).Length;
             }

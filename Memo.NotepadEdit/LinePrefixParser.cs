@@ -9,6 +9,7 @@ internal enum LineMarkerKind
     OrderedChinesePunct,
     OrderedChineseChar,
     Bullet,
+    Checkbox,
     Quote
 }
 
@@ -24,11 +25,12 @@ internal readonly record struct LinePrefix(
 
 internal static class LinePrefixParser
 {
-    private static readonly Regex OrderedWestern = new(@"^(\d+)([\.\)])\s", RegexOptions.Compiled);
-    private static readonly Regex OrderedChinesePunct = new(@"^(\d+)([、）])\s?", RegexOptions.Compiled);
-    private static readonly Regex OrderedChineseWrapped = new(@"^（([一二三四五六七八九十]+)）\s?", RegexOptions.Compiled);
-    private static readonly Regex OrderedChineseChar = new(@"^([一二三四五六七八九十]+)([、）])\s?", RegexOptions.Compiled);
+    private static readonly Regex OrderedWestern = new(@"^(\d{1,9})([\.\)])\s", RegexOptions.Compiled);
+    private static readonly Regex OrderedChinesePunct = new(@"^(\d{1,9})([、）])\s?", RegexOptions.Compiled);
+    private static readonly Regex OrderedChineseWrapped = new(@"^（([零一二三四五六七八九十百千]+)）\s?", RegexOptions.Compiled);
+    private static readonly Regex OrderedChineseChar = new(@"^([零一二三四五六七八九十百千]+)([、）])\s?", RegexOptions.Compiled);
     private static readonly Regex Bullet = new(@"^([-+*·•●○])\s", RegexOptions.Compiled);
+    private static readonly Regex Checkbox = new(@"^([-+*])\s+\[[ xX]\](?:\s+|$)", RegexOptions.Compiled);
     private static readonly Regex Quote = new(@"^(>)\s?", RegexOptions.Compiled);
 
     public static LinePrefix Parse(string line)
@@ -48,6 +50,9 @@ internal static class LinePrefixParser
 
         if (TryMatchOrderedChineseChar(rest, out var cnChar))
             return new LinePrefix(leading, LineMarkerKind.OrderedChineseChar, cnChar.Marker, cnChar.Content);
+
+        if (Checkbox.Match(rest) is { Success: true } checkbox)
+            return new LinePrefix(leading, LineMarkerKind.Checkbox, checkbox.Groups[1].Value + " [ ] ", rest[checkbox.Length..]);
 
         if (Bullet.Match(rest) is { Success: true } bullet)
             return new LinePrefix(leading, LineMarkerKind.Bullet, bullet.Groups[1].Value + " ", rest[bullet.Length..]);
@@ -111,6 +116,7 @@ internal static class LinePrefixParser
             LineMarkerKind.OrderedWestern or LineMarkerKind.OrderedChinesePunct or LineMarkerKind.OrderedChineseChar
                 => FormatOrderedMarker(prefix.MarkerKind, GetOrderedIndex(prefix) + 1, prefix.MarkerText),
             LineMarkerKind.Bullet => prefix.MarkerText,
+            LineMarkerKind.Checkbox => prefix.MarkerText,
             LineMarkerKind.Quote => "> ",
             _ => string.Empty
         };
@@ -202,13 +208,13 @@ internal static class LinePrefixParser
     private static int ParseWesternIndex(string marker)
     {
         var m = Regex.Match(marker.Trim(), @"^(\d+)([\.\)])\s*$");
-        return m.Success ? int.Parse(m.Groups[1].Value) : 1;
+        return m.Success && int.TryParse(m.Groups[1].Value, out var number) ? number : 1;
     }
 
     private static int ParseChinesePunctIndex(string marker)
     {
         var m = OrderedChinesePunct.Match(marker);
-        return m.Success ? int.Parse(m.Groups[1].Value) : 1;
+        return m.Success && int.TryParse(m.Groups[1].Value, out var number) ? number : 1;
     }
 
     private static int ParseChineseCharIndex(string marker)
@@ -273,6 +279,8 @@ internal static class ChineseNumeralHelper
         }
         for (var ones = 1; ones <= 9; ones++)
             map[$"十{Digits[ones]}"] = 10 + ones;
+        for (var number = 100; number < 10000; number++)
+            map[Format(number)] = number;
         return map;
     }
 
@@ -283,6 +291,18 @@ internal static class ChineseNumeralHelper
     public static string Format(int number)
     {
         number = Math.Max(1, number);
+        if (number >= 10000)
+            return number.ToString();
+        if (number >= 100)
+        {
+            var unit = number >= 1000 ? 1000 : 100;
+            var remainder = number % unit;
+            var prefix = Digits[number / unit] + (unit == 1000 ? "千" : "百");
+            if (remainder == 0) return prefix;
+            var suffix = Format(remainder);
+            if (remainder >= 10 && remainder < 20) suffix = "一" + suffix;
+            return prefix + (remainder < unit / 10 ? "零" : "") + suffix;
+        }
         if (number <= 9)
             return Digits[number];
         if (number == 10)

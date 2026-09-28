@@ -424,15 +424,20 @@ public sealed class NotepadEditTextBox : TextBox
     private void RestoreSnapshot(NotepadEditSnapshot snapshot)
     {
         _suppressUndoCapture = true;
+        _suppressLinkTracking = true;
         try
         {
-            Text = snapshot.Text;
+            var (display, links) = LinkMarkdownHelper.Strip(snapshot.Text);
+            _links = links;
+            _previousTextForLinks = display;
+            Text = display;
             SelectionStart = snapshot.SelectionStart;
             SelectionLength = snapshot.SelectionLength;
-            EditStateChanged?.Invoke(snapshot.Text);
+            EditStateChanged?.Invoke(display);
         }
         finally
         {
+            _suppressLinkTracking = false;
             _suppressUndoCapture = false;
         }
     }
@@ -444,7 +449,7 @@ public sealed class NotepadEditTextBox : TextBox
         if (_suppressUndoCapture || IsReadOnly)
             return;
 
-        _undo.Push(CreateSnapshot());
+        _undo.PushTyping(CreateSnapshot(), args.NewText ?? string.Empty, DateTimeOffset.UtcNow);
     }
 
     private NotepadEditSnapshot CreateSnapshot() =>
@@ -474,7 +479,7 @@ public sealed class NotepadEditTextBox : TextBox
     }
 
     private static bool IsSmartEditKey(VirtualKey key) =>
-        key is VirtualKey.Enter or VirtualKey.Back or VirtualKey.Tab;
+        key is VirtualKey.Enter or VirtualKey.Back or VirtualKey.Delete or VirtualKey.Tab;
 
     private static bool IsCtrlPressed() =>
         Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)

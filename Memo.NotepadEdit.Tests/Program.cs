@@ -1,7 +1,17 @@
 using Memo.NotepadEdit;
+using Memo;
 
 var tests = new (string Name, Action Test)[]
 {
+    ("nested parent numbering", NestedParentNumbering),
+    ("nested child numbering stays in parent", NestedChildNumbering),
+    ("nested parent start insertion", NestedParentStartInsertion),
+    ("nested parent deletion", NestedParentDeletion),
+    ("checkbox continuation and exit", CheckboxContinuation),
+    ("undo retains latest 200 in order", UndoCapacity),
+    ("typing merges and respects boundaries", TypingGroups),
+    ("chinese hundreds continuation", ChineseHundreds),
+    ("outdent maps partial selection", OutdentPartialSelection),
     ("enter continues western ordered list", EnterContinuesWesternOrderedList),
     ("enter continues chinese punct list", EnterContinuesChinesePunctList),
     ("enter continues chinese char list", EnterContinuesChineseCharList),
@@ -51,6 +61,10 @@ var tests = new (string Name, Action Test)[]
     ("enter split plain text still inserts marker", EnterSplitPlainTextStillInsertsMarker),
     ("enter on blank line below list stays plain", EnterOnBlankLineBelowListStaysPlain),
     ("enter after exiting list does not recreate marker", EnterAfterExitingListDoesNotRecreateMarker),
+    ("shift enter inserts plain newline", PlainEnterDoesNotContinueList),
+    ("delete selection renumbers list", DeleteSelectionRenumbersList),
+    ("delete newline merges and renumbers list", DeleteNewlineMergesAndRenumbersList),
+    ("huge ordered number stays plain text", HugeOrderedNumberDoesNotOverflow),
 };
 
 foreach (var test in tests)
@@ -60,6 +74,114 @@ Console.WriteLine($"Passed {tests.Length} notepad edit tests.");
 
 static NotepadEditResult Apply(NotepadEditCommand command, string text, int start, int length = 0) =>
     NotepadContinuationEngine.Apply(command, new NotepadEditState(text, start, length));
+
+static void NestedParentNumbering()
+{
+    const string text = "3. a\n    1. child\n    - detail\n4. b\n5. c\n\n9. separate";
+    const string expected = "3. a\n4. \n    1. child\n    - detail\n5. b\n6. c\n\n9. separate";
+    Result(Apply(NotepadEditCommand.Enter, text, 4), expected, 8, 0, "parent skips descendants");
+    var end = text.IndexOf("4. b") + 4;
+    var output = Apply(NotepadEditCommand.Enter, text, end);
+    Equal("3. a\n    1. child\n    - detail\n4. b\n5. \n6. c\n\n9. separate", output.Text, "find parent start across children");
+}
+
+static void NestedChildNumbering()
+{
+    const string text = "1. parent\n    1. a\n        - detail\n    2. b\n2. next\n    1. other";
+    var caret = text.IndexOf("    1. a") + "    1. a".Length;
+    var expected = "1. parent\n    1. a\n    2. \n        - detail\n    3. b\n2. next\n    1. other";
+    Result(Apply(NotepadEditCommand.Enter, text, caret), expected, caret + 8, 0, "child block boundary");
+}
+
+static void NestedParentStartInsertion()
+{
+    const string text = "1. a\n    1. child\n2. b";
+    var start = text.IndexOf("2. b");
+    Result(Apply(NotepadEditCommand.Enter, text, start), "1. a\n    1. child\n2. \n3. b", start + 3, 0, "insert parent after child");
+}
+
+static void NestedParentDeletion()
+{
+    const string text = "1. a\n    1. child\n2. b\n    - detail\n3. c";
+    var start = text.IndexOf("2. b");
+    Result(Apply(NotepadEditCommand.Delete, text, start, 5), "1. a\n    1. child\n    - detail\n2. c", start, 0, "delete parent keep children");
+    Result(Apply(NotepadEditCommand.Delete, text, start, "2. b\n    - detail\n".Length), "1. a\n    1. child\n2. c", start, 0, "delete parent subtree");
+    const string empty = "1. a\n2. \n    - detail\n3. c";
+    Result(Apply(NotepadEditCommand.Enter, empty, 8), "1. a\n\n    - detail\n2. c", 5, 0, "remove marker above children");
+}
+
+static void CheckboxContinuation()
+{
+    foreach (var marker in new[] { "- [ ] ", "- [x] ", "- [X] ", "+ [x] ", "* [ ] " })
+    {
+        var text = "    " + marker + "done";
+        var expected = text + "\n    " + marker[0] + " [ ] ";
+        Result(Apply(NotepadEditCommand.Enter, text, text.Length), expected, expected.Length, 0, "unchecked new checkbox");
+        var empty = "    " + marker;
+        Result(Apply(NotepadEditCommand.Enter, empty, empty.Length), "    ", 4, 0, "exit empty checkbox");
+        Result(Apply(NotepadEditCommand.Backspace, empty, empty.Length), "    ", 4, 0, "remove empty checkbox");
+    }
+    Result(Apply(NotepadEditCommand.Enter, "- [x] abcd", 8), "- [x] ab\n- [ ] cd", 15, 0, "split checkbox");
+    Result(Apply(NotepadEditCommand.PlainEnter, "- [x] done", 10), "- [x] done\n", 11, 0, "plain checkbox newline");
+}
+
+static void UndoCapacity()
+{
+    var stack = new NotepadEditUndoStack();
+    for (var i = 0; i < 250; i++) stack.Push(new(i.ToString(), 0, 0));
+    var current = new NotepadEditSnapshot("250", 0, 0);
+    for (var i = 249; i >= 50; i--)
+    {
+        Equal(true, stack.TryUndo(current, out var target), "undo available");
+        Equal(i.ToString(), target.Text, "latest history order");
+        current = target;
+    }
+    Equal(false, stack.TryUndo(current, out _), "capacity limit");
+    for (var i = 51; i <= 250; i++)
+    {
+        Equal(true, stack.TryRedo(current, out var target), "redo available");
+        Equal(i.ToString(), target.Text, "redo order");
+        current = target;
+    }
+}
+
+static void TypingGroups()
+{
+    var stack = new NotepadEditUndoStack();
+    var time = DateTimeOffset.UtcNow;
+    stack.PushTyping(new("", 0, 0), "a", time);
+    stack.PushTyping(new("a", 1, 0), "ab", time.AddMilliseconds(100));
+    stack.PushTyping(new("ab", 2, 0), "abc", time.AddSeconds(2));
+    Equal(true, stack.TryUndo(new("abc", 3, 0), out var target), "pause undo");
+    Equal("ab", target.Text, "pause separates typing");
+    Equal(true, stack.TryUndo(target, out var first), "group undo");
+    Equal("", first.Text, "continuous typing one step");
+    Equal(true, stack.TryRedo(first, out target), "group redo");
+    Equal("ab", target.Text, "group redo text");
+    stack.Push(target); // programmatic edit (paste/newline) is its own step
+    stack.PushTyping(new("ab\n", 3, 0), "ab\nx", time.AddSeconds(3));
+    stack.TryUndo(new("ab\nx", 4, 0), out target);
+    Equal("ab\n", target.Text, "typing after command separate");
+    stack.TryUndo(target, out first);
+    Equal("ab", first.Text, "command separate");
+}
+
+static void ChineseHundreds()
+{
+    foreach (var pair in new[] { ("九十九", "一百"), ("一百", "一百零一"), ("一百零九", "一百一十"), ("九百九十九", "一千") })
+    {
+        var text = pair.Item1 + "、内容";
+        var expected = text + "\n" + pair.Item2 + "、 ";
+        Result(Apply(NotepadEditCommand.Enter, text, text.Length), expected, expected.Length, 0, "Chinese continuation");
+    }
+}
+
+static void OutdentPartialSelection()
+{
+    Result(Apply(NotepadEditCommand.ShiftTab, "x\n    abc", 3, 1), "x\nabc", 2, 0, "selection inside indent");
+    Result(Apply(NotepadEditCommand.ShiftTab, "x\n    abc", 3), "x\nabc", 2, 0, "caret inside indent");
+    Result(Apply(NotepadEditCommand.ShiftTab, "    abc\n    def", 5, 8), "abc\ndef", 1, 4, "partial multiline selection");
+}
 
 static void Equal<T>(T expected, T actual, string message)
 {
@@ -180,7 +302,9 @@ static void TabOnTrailingNewlineAfterOrderedList()
 static void BackspaceOnNewlineDoesNotThrow()
 {
     var actual = Apply(NotepadEditCommand.Backspace, "1. one\n2. two", 6, 0);
-    Equal(true, actual.Handled || !actual.Handled, nameof(BackspaceOnNewlineDoesNotThrow));
+    Equal(false, actual.Handled, nameof(BackspaceOnNewlineDoesNotThrow) + " handled");
+    Equal("1. one\n2. two", actual.Text, nameof(BackspaceOnNewlineDoesNotThrow) + " text");
+    Equal(6, actual.SelectionStart, nameof(BackspaceOnNewlineDoesNotThrow) + " caret");
 }
 
 static void BackspaceOutdentsOneLevelInLeadingWhitespace()
@@ -512,6 +636,47 @@ static void EnterAfterExitingListDoesNotRecreateMarker()
     // 第二次回车：应是普通换行，光标下移，不再出现 "4. "
     var second = Apply(NotepadEditCommand.Enter, first.Text, first.SelectionStart);
     Result(second, "3. x\n\n", 6, 0, nameof(EnterAfterExitingListDoesNotRecreateMarker) + " newline");
+}
+
+static void PlainEnterDoesNotContinueList()
+{
+    Result(
+        Apply(NotepadEditCommand.PlainEnter, "1. one", 6),
+        "1. one\n",
+        7,
+        0,
+        nameof(PlainEnterDoesNotContinueList));
+}
+
+static void DeleteSelectionRenumbersList()
+{
+    Result(
+        Apply(NotepadEditCommand.Delete, "1. a\n2. b\n3. c", 5, 5),
+        "1. a\n2. c",
+        5,
+        0,
+        nameof(DeleteSelectionRenumbersList));
+}
+
+static void DeleteNewlineMergesAndRenumbersList()
+{
+    Result(
+        Apply(NotepadEditCommand.Delete, "1. a\n2. b\n3. c", 4),
+        "1. a2. b\n2. c",
+        4,
+        0,
+        nameof(DeleteNewlineMergesAndRenumbersList));
+}
+
+static void HugeOrderedNumberDoesNotOverflow()
+{
+    const string text = "999999999999. item";
+    Result(
+        Apply(NotepadEditCommand.Enter, text, text.Length),
+        text + "\n",
+        text.Length + 1,
+        0,
+        nameof(HugeOrderedNumberDoesNotOverflow));
 }
 
 // 列表可从任意序号开始，重排不应重置为 1

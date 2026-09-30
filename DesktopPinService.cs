@@ -54,6 +54,10 @@ namespace Memo
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool IsWindowVisible(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsIconic(IntPtr hWnd);
+
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -134,6 +138,7 @@ namespace Memo
 
         private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
 
         private const uint SWP_NOMOVE = 0x0002;
         private const uint SWP_NOSIZE = 0x0001;
@@ -150,6 +155,8 @@ namespace Memo
         private const uint WM_WINDOWPOSCHANGING = 0x0046;
         private const uint WM_SYSCOMMAND = 0x0112;
         private const uint WM_SHOWWINDOW = 0x0018;
+        private const uint WM_SIZE = 0x0005;
+        private const uint WM_MOUSEACTIVATE = 0x0021;
         private const int SC_MINIMIZE = 0xF020;
         private const uint GW_HWNDPREV = 3;
 
@@ -168,7 +175,6 @@ namespace Memo
         // WinEvent hook constants
         private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
         private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
-        private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
 
         #endregion
 
@@ -191,6 +197,30 @@ namespace Memo
         private static IntPtr _lastDesktopHost;
         private static volatile int _initInProgress;
         private static IntPtr _liftedWindow = IntPtr.Zero;  // Hotkey-lifted window awaiting auto-return
+        private static long _lastDiagnostic;
+        private static int _minimizeRequests;
+        private static int _hideRequests;
+        private static int _minimizedNotifications;
+        private static IntPtr _clickActivationWindow;
+        private static long _clickActivationDeadline;
+        private static IntPtr _userActivatedWindow;
+
+        private static void TracePinState(string reason, IntPtr hwnd, bool force = false)
+        {
+            // 聚合消息计数，避免在窗口回调里高频写盘；不记录记事本内容。
+            var now = Environment.TickCount64;
+            if (!force && now - _lastDiagnostic < 1000) return;
+            _lastDiagnostic = now;
+            try
+            {
+                IntPtr[] windows;
+                lock (_lock) { windows = _pinnedWindows.ToArray(); }
+                var states = string.Join("; ", windows.Select(window =>
+                    $"{window.ToInt64():X}:visible={IsWindowVisible(window)},iconic={IsIconic(window)},topmost={(GetWindowLongPtr(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0},aboveDesktop={IsAboveDesktop(window, _lastDesktopHost)}"));
+                Services.AppLog.Info($"DesktopPin {reason}: source={hwnd.ToInt64():X}, foreground={GetForegroundWindow().ToInt64():X}, desktop={_showDesktop}, pinned=[{states}], minimizeRequests={_minimizeRequests}, hideRequests={_hideRequests}, minimizedNotifications={_minimizedNotifications}");
+            }
+            catch { /* 诊断失败不能从原生窗口回调抛出异常。 */ }
+        }
 
         private static bool _verboseLogging = false;
 
@@ -269,14 +299,13 @@ namespace Memo
                 }
 
                 // WinEvent hook: detects WorkerW/Progman becoming foreground.
-                // This provides instant ShowDesktop detection, eliminating the
-                // polling delay that causes flicker.
+                // Handle subsequent desktop activations too; polling is a fallback.
                 _winEventProcDelegate = WinEventProc;
                 _winEventHook = SetWinEventHook(
                     EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
                     IntPtr.Zero, _winEventProcDelegate,
                     0, 0,
-                    WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+                    WINEVENT_OUTOFCONTEXT);
                 if (_winEventHook != IntPtr.Zero)
                     Log($"WinEventHook OK: 0x{_winEventHook.ToInt64():X}");
                 else
@@ -328,6 +357,8 @@ namespace Memo
 
             _initialized = false;
             _showDesktop = false;
+            _clickActivationWindow = IntPtr.Zero;
+            _userActivatedWindow = IntPtr.Zero;
         }
 
         #endregion
@@ -361,6 +392,8 @@ namespace Memo
             RemovePosChangingSubclass(hwnd);
             lock (_lock) { _pinnedWindows.Remove(hwnd); }
             if (_liftedWindow == hwnd) _liftedWindow = IntPtr.Zero;
+            if (_clickActivationWindow == hwnd) _clickActivationWindow = IntPtr.Zero;
+            if (_userActivatedWindow == hwnd) _userActivatedWindow = IntPtr.Zero;
             Log($"Unpinned: 0x{hwnd.ToInt64():X}");
         }
 
@@ -395,7 +428,7 @@ namespace Memo
                     SetWindowPos(hwnd, _helperWindow, 0, 0, 0, 0,
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
                 else if (_helperWindow != IntPtr.Zero)
-                    // Anchor above helper window (not raw HWND_BOTTOM) so pinned
+                    // Anchor immediately below helper window (not raw HWND_BOTTOM) so pinned
                     // windows stay above any windows that are below the helper.
                     SetWindowPos(hwnd, _helperWindow, 0, 0, 0, 0,
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
@@ -413,13 +446,13 @@ namespace Memo
 
             if (_showDesktop && desktopHost != IntPtr.Zero)
             {
-                SetWindowPos(_helperWindow, HWND_TOPMOST, 0, 0, 0, 0, ZPOS_FLAGS);
-
                 var hwnd = desktopHost;
                 while (true)
                 {
                     hwnd = GetWindow(hwnd, GW_HWNDPREV);
                     if (hwnd == IntPtr.Zero) break;
+                    if (hwnd == _helperWindow || hwnd == _systemWindow) continue;
+                    lock (_lock) { if (_pinnedWindows.Contains(hwnd)) continue; }
                     if ((GetWindowLongPtr(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)
                     {
                         SetWindowPos(_helperWindow, hwnd, 0, 0, 0, 0, ZPOS_FLAGS);
@@ -427,10 +460,40 @@ namespace Memo
                         return;
                     }
                 }
+                // 只有没有可用的顶层锚点时才提升，避免先置顶再降层的往返。
+                SetWindowPos(_helperWindow, HWND_TOPMOST, 0, 0, 0, 0, ZPOS_FLAGS);
+            }
+            else if (desktopHost != IntPtr.Zero)
+            {
+                // Leaving ShowDesktop must not put the widgets underneath the
+                // desktop itself (e.g. after Refresh or activating a notification).
+                // Find the nearest ordinary window above the desktop and insert
+                // below it, excluding our own anchors/widgets from the search.
+                var insertAfter = GetWindow(desktopHost, GW_HWNDPREV);
+                while (insertAfter != IntPtr.Zero)
+                {
+                    bool isOwnWindow;
+                    lock (_lock) { isOwnWindow = _pinnedWindows.Contains(insertAfter); }
+                    if (insertAfter != _helperWindow && insertAfter != _systemWindow && !isOwnWindow
+                        && (GetWindowLongPtr(insertAfter, GWL_EXSTYLE) & WS_EX_TOPMOST) == 0)
+                        break;
+                    insertAfter = GetWindow(insertAfter, GW_HWNDPREV);
+                }
+
+                // With no ordinary window above the desktop, use the top of the
+                // non-topmost band, keeping menus and topmost notifications above us.
+                if (insertAfter == IntPtr.Zero
+                    && (GetWindowLongPtr(_helperWindow, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)
+                    SetWindowPos(_helperWindow, HWND_NOTOPMOST, 0, 0, 0, 0, ZPOS_FLAGS);
+                // Zero is HWND_TOP; unlike HWND_NOTOPMOST it also reorders an
+                // already non-topmost helper that was previously below the desktop.
+                SetWindowPos(_helperWindow, insertAfter, 0, 0, 0, 0, ZPOS_FLAGS);
             }
             else
             {
-                SetWindowPos(_helperWindow, HWND_BOTTOM, 0, 0, 0, 0, ZPOS_FLAGS);
+                // Shell may be rebuilding its desktop. Keep the existing position
+                // until a real host is available instead of hiding below everything.
+                return;
             }
         }
 
@@ -464,6 +527,14 @@ namespace Memo
         private static IntPtr PosChangingProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
             IntPtr uIdSubclass, IntPtr dwRefData)
         {
+            if (uMsg == WM_MOUSEACTIVATE && _showDesktop)
+            {
+                // Let Windows perform the real click activation. Do not rewrite
+                // its associated Z-order request or synthesize foreground input.
+                _clickActivationWindow = hWnd;
+                _clickActivationDeadline = Environment.TickCount64 + 1000;
+                TracePinState("click activation requested", hWnd, force: true);
+            }
             if (uMsg == WM_WINDOWPOSCHANGING)
             {
                 bool isPinned;
@@ -471,14 +542,28 @@ namespace Memo
                 if (isPinned)
                 {
                     var wp = Marshal.PtrToStructure<WINDOWPOS>(lParam);
-                    // Block any Z-order change — our RepositionAll() controls Z-order
-                    wp.flags |= SWP_NOZORDER;
+                    // During ShowDesktop, constrain the requested change in-place
+                    // instead of rejecting it and raising the window on a later tick.
+                    // Leave move/resize-only requests and hotkey lifting untouched.
+                    bool allowClickActivation = _userActivatedWindow == hWnd
+                        || (_clickActivationWindow == hWnd && Environment.TickCount64 <= _clickActivationDeadline);
+                    if (allowClickActivation)
+                    {
+                        // Preserve the activation request exactly as Windows supplied it.
+                    }
+                    else if (_showDesktop && _helperWindow != IntPtr.Zero && _liftedWindow != hWnd)
+                    {
+                        if ((wp.flags & SWP_NOZORDER) == 0)
+                            wp.hwndInsertAfter = _helperWindow;
+                    }
+                    else
+                    {
+                        wp.flags |= SWP_NOZORDER;
+                    }
                     // Prevent the window from being hidden by ShowDesktop / MinimizeAll
                     if ((wp.flags & SWP_HIDEWINDOW) != 0)
                         wp.flags &= ~SWP_HIDEWINDOW;
-                    // Ensure the window stays visible
-                    if ((wp.flags & SWP_SHOWWINDOW) == 0)
-                        wp.flags |= SWP_SHOWWINDOW;
+                    // 普通移动/激活不得附加 SHOWWINDOW，避免与 Shell 的显示桌面过程争夺显示状态。
                     Marshal.StructureToPtr(wp, lParam, true);
                 }
             }
@@ -491,19 +576,31 @@ namespace Memo
                     bool isPinned;
                     lock (_lock) { isPinned = _pinnedWindows.Contains(hWnd); }
                     if (isPinned)
+                    {
+                        _minimizeRequests++;
+                        TracePinState("SC_MINIMIZE blocked", hWnd);
                         return IntPtr.Zero; // Block the minimize command
+                    }
                 }
             }
             else if (uMsg == WM_SHOWWINDOW)
             {
-                // Block SW_HIDE (wParam=0) when ShowDesktop tries to hide this window
+                // WM_SHOWWINDOW 是通知；返回零不代表可以取消隐藏，只记录诊断。
                 if (wParam == IntPtr.Zero)
                 {
                     bool isPinned;
                     lock (_lock) { isPinned = _pinnedWindows.Contains(hWnd); }
                     if (isPinned)
-                        return IntPtr.Zero; // Block hide
+                    {
+                        _hideRequests++;
+                        TracePinState("WM_SHOWWINDOW hide notification", hWnd);
+                    }
                 }
+            }
+            else if (uMsg == WM_SIZE && wParam == (IntPtr)1)
+            {
+                _minimizedNotifications++;
+                TracePinState("SIZE_MINIMIZED", hWnd);
             }
             return DefSubclassProc(hWnd, uMsg, wParam, lParam);
         }
@@ -534,10 +631,15 @@ namespace Memo
             IntPtr hwnd, int idObject, int idChild, int dwEventThread, uint dwmsEventTime)
         {
             if (eventType != EVENT_SYSTEM_FOREGROUND) return;
-            if (_showDesktop) return; // Only detect transition INTO ShowDesktop
-
             try
             {
+                // Also observe our own windows so a quick pinned-window -> desktop
+                // click is not missed between timer ticks. Do not wait 100ms to repair.
+                if (_showDesktop || _clickActivationWindow != IntPtr.Zero || _userActivatedWindow != IntPtr.Zero)
+                {
+                    CheckShowDesktopState();
+                    return;
+                }
                 var progman = FindWindow(PROGMAN_CLASS, null);
                 if (progman == IntPtr.Zero) return;
 
@@ -601,6 +703,47 @@ namespace Memo
         private static bool CheckShowDesktopState()
         {
             var desktopHost = FindDesktopHost();
+            if (desktopHost == IntPtr.Zero) return false;
+            var foreground = GetForegroundWindow();
+            if (_clickActivationWindow != IntPtr.Zero)
+            {
+                if (foreground == _clickActivationWindow)
+                {
+                    _userActivatedWindow = foreground;
+                    _clickActivationWindow = IntPtr.Zero;
+                    _showDesktop = false;
+                    if (_pollTimer != null)
+                        _pollTimer.Interval = TimeSpan.FromMilliseconds(INTERVAL_SHOWDESKTOP);
+                    TracePinState("click activation confirmed", foreground, force: true);
+                }
+                else if (Environment.TickCount64 <= _clickActivationDeadline)
+                {
+                    // Do not race the in-progress activation with desktop repairs.
+                    return false;
+                }
+                else
+                {
+                    TracePinState("click activation not confirmed", _clickActivationWindow, force: true);
+                    _clickActivationWindow = IntPtr.Zero;
+                }
+            }
+            if (_userActivatedWindow != IntPtr.Zero)
+            {
+                if (foreground == _userActivatedWindow || foreground == IntPtr.Zero)
+                    return false;
+                _userActivatedWindow = IntPtr.Zero;
+                _lastDesktopHost = desktopHost;
+                // Only return to the desktop band after the user has switched away.
+                PrepareHelper(desktopHost);
+                RepositionAll();
+                TracePinState("click activation released", foreground, force: true);
+                return true;
+            }
+            bool pinnedForeground;
+            lock (_lock) { pinnedForeground = _pinnedWindows.Contains(foreground); }
+            // 固定窗口获得焦点时保留桌面状态，让记事本正常输入，避免焦点切换触发降层。
+            if (pinnedForeground && _showDesktop) return false;
+            var hostChanged = desktopHost != _lastDesktopHost;
 
             _checkCount++;
             if (_checkCount % 10 == 0) // Log every ~2.5 seconds
@@ -622,6 +765,7 @@ namespace Memo
             {
                 _showDesktop = detected;
                 Log($"*** ShowDesktop = {_showDesktop} ***");
+                TracePinState("desktop transition", foreground);
 
                 if (_pollTimer != null)
                 {
@@ -633,15 +777,23 @@ namespace Memo
                 // State changed: reposition immediately
                 PrepareHelper(desktopHost);
                 RepositionAll();
+                TracePinState("desktop transition applied", foreground, force: true);
                 return true;
             }
-            else if (_showDesktop)
+            else
             {
-                // During ShowDesktop, continuously fix Z-order.
-                // User interactions (clicking pinned window then desktop) can
-                // cause Windows to reorder windows between state changes.
-                PrepareHelper(desktopHost);
-                RepositionAll();
+                // Refresh and notification dismissal can reorder the desktop
+                // without changing foreground HWND. Check the actual order on
+                // every tick, but do not write it unless a widget is covered.
+                bool covered;
+                lock (_lock) { covered = _pinnedWindows.Any(hwnd =>
+                    hwnd != _liftedWindow && IsWindowVisible(hwnd) && !IsAboveDesktop(hwnd, desktopHost)); }
+                if (hostChanged || covered)
+                {
+                    PrepareHelper(desktopHost);
+                    RepositionAll();
+                    TracePinState("desktop z-order repair applied", foreground);
+                }
             }
             // Normal mode + no state change: skip reposition to avoid flicker,
             // but check if a hotkey-lifted window should auto-return to desktop.
@@ -655,6 +807,14 @@ namespace Memo
                     RepositionAll();
                 }
             }
+            return false;
+        }
+
+        private static bool IsAboveDesktop(IntPtr hwnd, IntPtr desktopHost)
+        {
+            for (var current = GetWindow(desktopHost, GW_HWNDPREV); current != IntPtr.Zero;
+                 current = GetWindow(current, GW_HWNDPREV))
+                if (current == hwnd) return true;
             return false;
         }
 

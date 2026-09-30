@@ -24,7 +24,10 @@
             <Border Background="Transparent" PointerPressed="Bounds_PointerPressed" PointerMoved="Bounds_PointerMoved"
                     PointerReleased="Bounds_PointerReleased" PointerCaptureLost="Bounds_PointerCaptureLost"
                     DoubleTapped="TitleBar_DoubleTapped" ToolTipService.ToolTip="拖动移动，双击收起或展开">
-                <TextBlock Text="任务中心" FontSize="14" FontWeight="SemiBold" Margin="14,0" VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xEADF;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="任务中心" FontSize="14" FontWeight="Normal" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
             </Border>
             <Button Grid.Column="1" Click="ToggleExpand_Click" Background="Transparent" BorderThickness="0"
                     ToolTipService.ToolTip="收起或展开" AutomationProperties.Name="收起或展开">

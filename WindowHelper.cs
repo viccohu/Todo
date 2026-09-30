@@ -267,6 +267,31 @@ namespace Memo
             DesktopPinService.AddPinnedWindow(hwnd);
         }
 
+        public static Windows.Graphics.RectInt32 ResolvePinnedDragBounds(this Window window,
+            Windows.Graphics.RectInt32 proposed, Windows.Graphics.RectInt32 area,
+            bool resize = false, int minimumWidth = 480, int minimumHeight = 320, bool snapResize = false)
+        {
+            var hwnd = window.GetWindowHandle();
+            var obstacles = new System.Collections.Generic.List<System.Drawing.Rectangle>();
+            lock (_pinnedGuardLock)
+            {
+                foreach (var pair in _pinnedWindows)
+                {
+                    if (pair.Key == hwnd) continue;
+                    var state = pair.Value;
+                    obstacles.Add(new System.Drawing.Rectangle(state.X, state.Y, state.Width, state.Height));
+                }
+            }
+            var current = window.AppWindow;
+            var requested = new System.Drawing.Rectangle(proposed.X, proposed.Y, proposed.Width, proposed.Height);
+            var previous = new System.Drawing.Rectangle(current.Position.X, current.Position.Y, current.Size.Width, current.Size.Height);
+            var workArea = new System.Drawing.Rectangle(area.X, area.Y, area.Width, area.Height);
+            var result = resize
+                ? PinnedWindowLayout.Resize(requested, previous, workArea, obstacles, minimumWidth, minimumHeight, snapResize)
+                : PinnedWindowLayout.Resolve(requested, previous, workArea, obstacles);
+            return new Windows.Graphics.RectInt32(result.X, result.Y, result.Width, result.Height);
+        }
+
         public static void UpdatePinnedWindowGuard(this Window window)
         {
             var hwnd = window.GetWindowHandle();

@@ -3,6 +3,7 @@ using Memo;
 
 var tests = new (string Name, Action Test)[]
 {
+    ("pinned window collision layout", PinnedWindowLayoutTests.Run),
     ("empty nested item climbs levels", EmptyNestedItemClimbs),
     ("empty nested deletion removes only marker", EmptyNestedDeletion),
     ("empty item follows parent style", EmptyItemParentStyle),

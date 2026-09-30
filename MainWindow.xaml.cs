@@ -2909,7 +2909,6 @@ namespace Memo
             if (_currentNavTag == "Notepad")
             {
                 _notepadCompactWindow = new NotepadCompactWindow(_dbService, _notepadTabs, yOffset);
-                _notepadCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _notepadCompactWindow.ExitRequested += () =>
                 {
                     _notepadCompactWindow?.Close();
@@ -2931,7 +2930,6 @@ namespace Memo
                 _taskCompactWindow = new CompactWindow(Tasks, CompletedTasks, _dbService, yOffset);
                 _taskCompactWindow.TasksChanged += RefreshMatrixIfVisible;
                 _taskCompactPageTag = _currentNavTag;
-                _taskCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _taskCompactWindow.ExitRequested += () =>
                 {
                     _taskCompactWindow?.Close();
@@ -2951,23 +2949,26 @@ namespace Memo
                 _taskCompactWindow.Activate();
             }
 
+            RepositionCompactWindows();
             UpdatePinButtonState();
             SaveCompactState();
         }
 
-        private void OnCompactWindowHeightChanged(int newHeight)
-        {
-            RepositionCompactWindows();
-        }
-
+        private bool _compactPairArranged;
         private void RepositionCompactWindows()
         {
             const int gap = 12;
             var task = _taskCompactWindow?.AppWindow;
             var note = _notepadCompactWindow?.AppWindow;
-            if (note == null) return;
+            if (note == null || task == null)
+            {
+                _compactPairArranged = false;
+                return;
+            }
+            if (_compactPairArranged) return;
+            _compactPairArranged = true;
             var area = DisplayArea.GetFromWindowId(task?.Id ?? note.Id, DisplayAreaFallback.Primary).WorkArea;
-            var width = Math.Min(task?.Size.Width ?? note.Size.Width, area.Width);
+            var width = Math.Min(note.Size.Width, area.Width);
             var height = Math.Min(note.Size.Height, area.Height);
             var x = note.Position.X;
             var y = note.Position.Y;
@@ -2979,7 +2980,7 @@ namespace Memo
                 height = Math.Min(height, Math.Max(40, area.Height - taskHeight - gap));
                 x = Math.Clamp(task.Position.X, area.X, area.X + area.Width - width);
                 var taskY = Math.Clamp(task.Position.Y, area.Y, Math.Max(area.Y, area.Y + area.Height - taskHeight - gap - height));
-                task.MoveAndResize(new Windows.Graphics.RectInt32(x, taskY, width, taskHeight));
+                task.MoveAndResize(new Windows.Graphics.RectInt32(task.Position.X, taskY, task.Size.Width, taskHeight));
                 _taskCompactWindow!.UpdatePinnedWindowGuard();
                 y = taskY + taskHeight + gap;
             }
@@ -3034,7 +3035,6 @@ namespace Memo
                 _taskCompactWindow = new CompactWindow(Tasks, CompletedTasks, _dbService);
                 _taskCompactWindow.TasksChanged += RefreshMatrixIfVisible;
                 _taskCompactPageTag = _currentNavTag;
-                _taskCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _taskCompactWindow.ExitRequested += () =>
                 {
                     _taskCompactWindow?.Close();
@@ -3064,7 +3064,6 @@ namespace Memo
                 }
 
                 _notepadCompactWindow = new NotepadCompactWindow(_dbService, _notepadTabs);
-                _notepadCompactWindow.HeightChanged += OnCompactWindowHeightChanged;
                 _notepadCompactWindow.ExitRequested += () =>
                 {
                     _notepadCompactWindow?.Close();

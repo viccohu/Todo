@@ -7,7 +7,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid x:Name="RootGrid" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+    <Grid x:Name="RootGrid" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
           PreviewKeyDown="RootGrid_PreviewKeyDown">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -18,9 +18,10 @@
         </Grid.RowDefinitions>
 
         <!-- 标题栏 -->
-        <Grid Grid.Row="0" Height="32">
+        <Grid Grid.Row="0" Height="40" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <Border Background="Transparent" PointerPressed="TitleBar_PointerPressed" PointerMoved="TitleBar_PointerMoved"
@@ -31,7 +32,12 @@
                 <TextBlock Text="NOTEPAD" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
             </StackPanel>
             </Border>
-            <Button Grid.Column="1"
+            <Button x:Name="ToggleExpandButton" Grid.Column="1" Click="ToggleExpand_Click"
+                    Background="Transparent" BorderThickness="0"
+                    ToolTipService.ToolTip="收起或展开" AutomationProperties.Name="收起或展开">
+                <FontIcon x:Name="ToggleExpandIcon" Glyph="&#xE70E;" FontSize="12"/>
+            </Button>
+            <Button Grid.Column="2"
                     Click="RestoreButton_Click"
                     Background="Transparent"
                     Margin="0,0,8,0"
@@ -48,7 +54,7 @@
                  AddTabButtonClick="TabView_AddTabClick"
                  TabCloseRequested="TabView_TabCloseRequested"
                  SelectionChanged="TabView_SelectionChanged"
-                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                 Background="Transparent"
                  IsAddTabButtonVisible="True">
         </TabView>
 
@@ -61,7 +67,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- 工具栏 -->
-                <Grid Grid.Row="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="6,4" Height="32">
+                <Grid Grid.Row="0" Background="Transparent" Padding="6,4" Height="32" Visibility="Collapsed">
                     <Button x:Name="PreviewToggleButton"
                             Click="PreviewToggle_Click"
                             HorizontalAlignment="Right"
@@ -131,19 +137,12 @@
             </Button>
         </Grid>
 
-        <!-- 展开/收起按钮 -->
-        <Button x:Name="ToggleExpandButton"
-                Grid.Row="4"
-                Click="ToggleExpand_Click"
-                HorizontalAlignment="Stretch"
-                Background="{ThemeResource ControlFillColorDefaultBrush}"
-                BorderThickness="1"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                CornerRadius="0"
-                Padding="0,0">
-            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                <FontIcon x:Name="ToggleExpandIcon" Glyph="&#xE96E;" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-            </StackPanel>
-        </Button>
+        <Border x:Name="ResizeGrip" Grid.Row="4" Width="28" Height="20" HorizontalAlignment="Right"
+                Background="Transparent"
+                PointerPressed="TitleBar_PointerPressed" PointerMoved="TitleBar_PointerMoved"
+                PointerReleased="TitleBar_PointerReleased" PointerCaptureLost="TitleBar_PointerCaptureLost"
+                ToolTipService.ToolTip="拖动调整记事本大小">
+            <FontIcon Glyph="&#xE784;" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+        </Border>
     </Grid>
 </Window>

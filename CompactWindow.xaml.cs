@@ -21,6 +21,9 @@ namespace Memo
         private bool _dragging;
         private bool _resizing;
         private CursorPoint _lastCursor;
+        private CursorPoint _dragStartCursor;
+        private Windows.Graphics.PointInt32 _dragStartPosition;
+        private Windows.Graphics.SizeInt32 _dragStartSize;
         [StructLayout(LayoutKind.Sequential)]
         private struct CursorPoint { public int X; public int Y; }
         [DllImport("user32.dll")]
@@ -33,7 +36,6 @@ namespace Memo
         public event Action? ExitRequested;
         public event Action? TasksChanged;
 
-        public event Action<int>? HeightChanged;
 
         public CompactWindow(
             ObservableCollection<TaskItem> tasks,
@@ -58,6 +60,11 @@ namespace Memo
 
             // 固定到桌面右下角
             this.SetupPinnedWindow(yOffset);
+            PinnedWindowAnimation.Register(this, () => _isMinimized ? 40 : 160, () =>
+            {
+                if (!_isMinimized) _expandedHeight = AppWindow.Size.Height;
+                SaveBounds();
+            });
             this.Closed += (s, e) =>
             {
                 _refreshTimer.Stop();
@@ -128,16 +135,24 @@ namespace Memo
 
         private void Bounds_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
+            if (PinnedWindowAnimation.IsAnimating) return;
             if (!e.GetCurrentPoint((UIElement)sender).Properties.IsLeftButtonPressed || !GetCursorPos(out _lastCursor)) return;
             _resizing = ReferenceEquals(sender, ResizeGrip);
+            _dragStartCursor = _lastCursor;
+            _dragStartPosition = AppWindow.Position;
+            _dragStartSize = AppWindow.Size;
             _dragging = ((UIElement)sender).CapturePointer(e.Pointer);
             e.Handled = true;
         }
 
         private void Bounds_PointerMoved(object sender, PointerRoutedEventArgs e)
         {
+            if (PinnedWindowAnimation.IsAnimating) return;
             if (!_dragging || !GetCursorPos(out var cursor)) return;
-            ChangeBounds(cursor.X - _lastCursor.X, cursor.Y - _lastCursor.Y, _resizing);
+            // Base movement on the original pointer offset, not the snapped position,
+            // so small pointer events accumulate and can release the magnetic edge.
+            ChangeBounds(_resizing ? _dragStartSize.Width + cursor.X - _dragStartCursor.X - AppWindow.Size.Width : _dragStartPosition.X + cursor.X - _dragStartCursor.X - AppWindow.Position.X,
+                _resizing ? _dragStartSize.Height + cursor.Y - _dragStartCursor.Y - AppWindow.Size.Height : _dragStartPosition.Y + cursor.Y - _dragStartCursor.Y - AppWindow.Position.Y, _resizing);
             _lastCursor = cursor;
             e.Handled = true;
         }
@@ -168,20 +183,19 @@ namespace Memo
             var height = AppWindow.Size.Height;
             if (resize)
             {
-                width = Math.Clamp(width + (int)Math.Round(dx * scale), Math.Min(480, area.Width), area.Width);
-                height = Math.Clamp(height + (int)Math.Round(dy * scale), Math.Min(320, area.Height), area.Height);
-                _expandedHeight = height;
+                width += (int)Math.Round(dx * scale);
+                height += (int)Math.Round(dy * scale);
             }
             else
             {
                 x += (int)Math.Round(dx * scale);
                 y += (int)Math.Round(dy * scale);
             }
-            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
-                Math.Clamp(x, area.X, area.X + area.Width - width),
-                Math.Clamp(y, area.Y, area.Y + area.Height - height), width, height));
+            var bounds = this.ResolvePinnedDragBounds(new Windows.Graphics.RectInt32(
+                x, y, width, height), area, resize: resize, snapResize: resize);
+            AppWindow.MoveAndResize(bounds);
+            if (resize) _expandedHeight = bounds.Height;
             this.UpdatePinnedWindowGuard();
-            HeightChanged?.Invoke(height);
         }
 
         private void SaveMinimizedState()
@@ -280,19 +294,23 @@ namespace Memo
             }
         }
 
-        private void ToggleExpand_Click(object sender, RoutedEventArgs e)
+        private async void ToggleExpand_Click(object sender, RoutedEventArgs e)
         {
+            if (PinnedWindowAnimation.IsAnimating) return;
             if (!_isMinimized) _expandedHeight = AppWindow.Size.Height;
-            _isMinimized = !_isMinimized;
-            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-            var height = _isMinimized ? 40 : Math.Min(_expandedHeight, area.Height);
-            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(AppWindow.Position.X,
-                Math.Clamp(AppWindow.Position.Y, area.Y, area.Y + area.Height - height), AppWindow.Size.Width, height));
+            var collapse = !_isMinimized;
+            if (!collapse)
+            {
+                _isMinimized = false;
+                UpdateCollapsedState();
+            }
+            var height = await PinnedWindowAnimation.ChangeHeightAsync(this, collapse ? 40 : _expandedHeight);
+            if (height == null) return;
+            _isMinimized = height <= 40;
             UpdateCollapsedState();
             this.UpdatePinnedWindowGuard();
             SaveMinimizedState();
             SaveBounds();
-            HeightChanged?.Invoke(height);
         }
 
         private static DateTime CalculateNextRecurringDueDate(RecurrenceType recurrenceType, DateTime currentDueDate)
